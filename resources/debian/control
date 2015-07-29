@@ -1,0 +1,15 @@
+Source: php-tecnickcom-tc-lib-file
+Maintainer: Nicola Asuni <info@tecnick.com>
+Section: php
+Priority: optional
+Build-Depends: debhelper (>= 9), php5-curl
+Standards-Version: 3.9.5
+Homepage: https://github.com/tecnickcom/tc-lib-file
+Vcs-Git: https://github.com/tecnickcom/tc-lib-file.git
+
+Package: php-tecnickcom-tc-lib-file
+Provides: php-tc-lib-file
+Architecture: all
+Depends: php5 (>= 5.3.3)
+Description: PHP Color library
+ This library includes PHP classes to read byte-level data from files

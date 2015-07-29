@@ -1,0 +1,34 @@
+{
+    "name": "tecnick.com/tc-lib-file",
+    "description": "PHP library to read byte-level data from files",
+    "type": "library",
+    "homepage": "http://www.tecnick.com",
+    "license": "GNU-LGPL v3",
+    "keywords": ["tc-lib-file", "file", "byte", "bit", "read", "short", "long", "double"],
+    "authors": [
+        {
+            "name": "Nicola Asuni",
+            "email": "info@tecnick.com",
+            "role": "lead"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "4.7.*",
+        "pdepend/pdepend" : "2.1.*",
+        "squizlabs/php_codesniffer": "2.3.*",
+        "phpmd/phpmd" : "2.2.*",
+        "sebastian/phpcpd" : "2.0.*",
+        "phploc/phploc" : "2.1.*",
+        "phpdocumentor/phpdocumentor" : "2.5.*",
+        "nikic/php-parser" : "1.3.*",
+        "bartlett/php-compatinfo" : "4.3.*"
+    },
+    "autoload": {
+        "psr-4":{
+            "Com\\Tecnick\\File\\": "src"
+        }
+    }
+}
