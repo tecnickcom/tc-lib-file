@@ -110,10 +110,10 @@ class FileTest extends \PHPUnit_Framework_TestCase
                 )
             ),
             array(
-                '//www.example.com/test.txt',
+                '//www.example.com/space test.txt',
                 array(
-                    0 => '//www.example.com/test.txt',
-                    2 => 'https://www.example.com/test.txt'
+                    0 => '//www.example.com/space test.txt',
+                    2 => 'https://www.example.com/space%20test.txt'
                 )
             ),
             array(
@@ -125,9 +125,10 @@ class FileTest extends \PHPUnit_Framework_TestCase
                 )
             ),
             array(
-                'https://localhost/path/test.php?a=0',
+                'https://localhost/path/test.php?a=0&b=1&amp;c=2;&amp;d="a+b%20c"',
                 array(
-                    0 => 'https://localhost/path/test.php?a=0'
+                      0 => 'https://localhost/path/test.php?a=0&b=1&amp;c=2;&amp;d="a+b%20c"',
+                      2 => 'https://localhost/path/test.php?a=0&b=1&c=2;&d="a+b%20c"',
                 )
             ),
             array(
