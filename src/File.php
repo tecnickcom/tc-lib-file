@@ -221,9 +221,9 @@ class File
     protected function getAltMissingUrlProtocol($file)
     {
         if (preg_match('%^//%', $file) && !empty($_SERVER['HTTP_HOST'])) {
-            return $this->getDefaultUrlProtocol().':'.str_replace(' ', '%20', $file);
+            $file = $this->getDefaultUrlProtocol().':'.str_replace(' ', '%20', $file);
         }
-        return $file;
+        return htmlspecialchars_decode($file);
     }
 
     /**
