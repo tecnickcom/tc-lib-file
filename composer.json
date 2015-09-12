@@ -1,5 +1,5 @@
 {
-    "name": "tecnick.com/tc-lib-file",
+    "name": "tecnickcom/tc-lib-file",
     "description": "PHP library to read byte-level data from files",
     "type": "library",
     "homepage": "http://www.tecnick.com",
