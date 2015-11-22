@@ -13,4 +13,8 @@ matrix:
     - php: 7.0
     - php: hhvm
 
-script: make build_dev && make qa_all
+before_script:
+  - composer self-update
+  - make build_dev
+
+script: make qa_all
