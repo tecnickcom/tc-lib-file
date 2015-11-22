@@ -7,7 +7,14 @@
 * **author**      Nicola Asuni <info@tecnick.com>
 * **copyright**   2015-2015 Nicola Asuni - Tecnick.com LTD
 * **license**     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
-* **link **       https://github.com/tecnickcom/tc-lib-file
+* **link**       https://github.com/tecnickcom/tc-lib-file
+
+## Status
+* **MASTER**: [![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=master)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=master)
+[![Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=master&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=master)
+* **DEVELOP**: [![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=develop)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=develop)
+[![Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=develop&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=develop)
+
 
 ## Description
 
