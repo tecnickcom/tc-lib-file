@@ -18,8 +18,7 @@ matrix:
 before_script:
   - composer self-update
   - flags=""
-  - echo $(phpenv version-name)
-  - if [ `phpenv version-name` == "5.3.3" ]; then flags="--ignore-platform-reqs"; fi
+  - if [ `phpenv version-name` == "5.3" ]; then flags="--ignore-platform-reqs"; fi
   - composer -n install --no-interaction $flags
 
 script: make qa_all
