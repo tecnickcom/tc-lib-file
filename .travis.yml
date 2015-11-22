@@ -17,6 +17,8 @@ matrix:
 
 before_script:
   - composer self-update
-  - composer -n install --no-interaction
+  - flags=""
+  - if [ `phpenv version-name` == "5.3.29" ]; then flags="--ignore-platform-reqs"; fi
+  - composer -n install --no-interaction $flags
 
 script: make qa_all
