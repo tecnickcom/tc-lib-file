@@ -18,6 +18,7 @@ matrix:
 before_script:
   - composer self-update
   - flags=""
+  - echo $(phpenv version-name)
   - if [ `phpenv version-name` == "5.3.29" ]; then flags="--ignore-platform-reqs"; fi
   - composer -n install --no-interaction $flags
 
