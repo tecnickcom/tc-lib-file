@@ -13,5 +13,4 @@ matrix:
     - php: 7.0
     - php: hhvm
 
-before_script: make build_dev
-script: make qa_all
+script: make build_dev && make qa_all

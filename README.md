@@ -9,6 +9,11 @@
 * **license**     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
 * **link **       https://github.com/tecnickcom/tc-lib-file
 
+
+[![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=develop)](http://travis-ci.org/tecnickcom/tc-lib-file)
+[![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=master)](http://travis-ci.org/tecnickcom/tc-lib-file)
+
+
 ## Description
 
 This library includes utility classes to read byte-level data.
