@@ -9,10 +9,8 @@
 * **license**     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
 * **link **       https://github.com/tecnickcom/tc-lib-file
 
-
-[![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=develop)](http://travis-ci.org/tecnickcom/tc-lib-file)
 [![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=master)](http://travis-ci.org/tecnickcom/tc-lib-file)
-
+[![Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.png?branch=master)](https://coveralls.io/r/tecnickcom/tc-lib-file)
 
 ## Description
 

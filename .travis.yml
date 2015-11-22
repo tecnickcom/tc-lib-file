@@ -20,5 +20,20 @@ before_script:
   - flags=""
   - if [ `phpenv version-name` == "5.3" ]; then flags="--ignore-platform-reqs"; fi
   - composer -n install --no-interaction $flags
+  - composer require satooshi/php-coveralls:dev-master --no-interaction $flags
 
-script: make qa_all
+script:
+  - make qa_all
+  - make report
+
+after_success:
+  - cat ./target/report/phploc.txt
+  - cat ./target/report/phpcompatinfo.txt
+
+after_failure:
+  - cat ./target/logs/junit.xml
+  - cat ./target/report/phpcpd.txt
+
+after_script:
+ - ln -s target/coverage build/logs
+ - php vendor/bin/coveralls -v
