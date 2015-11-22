@@ -35,7 +35,7 @@ after_failure:
   - cat ./target/report/phpcpd.txt
 
 after_script:
- - echo 'src_dir: src' > .coveralls.yml
- - echo 'coverage_clover: target/coverage/coverage.xml' >> .coveralls.yml
- - echo 'json_path: target/coverage/coveralls-upload.json' >> .coveralls.yml
+ - "echo 'src_dir: src' > .coveralls.yml"
+ - "echo 'coverage_clover: target/coverage/coverage.xml' >> .coveralls.yml"
+ - "echo 'json_path: target/coverage/coveralls-upload.json' >> .coveralls.yml"
  - php vendor/bin/coveralls -v
