@@ -1,26 +1,31 @@
 # tc-lib-file
+*PHP library to read byte-level file data*
 
-*Please consider supporting this project by making a donation to <paypal@tecnick.com>*
+[![Latest Stable Version](https://poser.pugx.org/tecnickcom/tc-lib-file/version)](https://packagist.org/packages/tecnickcom/tc-lib-file)
+[![Master Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=master)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=master)
+[![Master Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=master&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=master)
+[![License](https://poser.pugx.org/tecnickcom/tc-lib-file/license)](https://packagist.org/packages/tecnickcom/tc-lib-file)
+[![Total Downloads](https://poser.pugx.org/tecnickcom/tc-lib-file/downloads)](https://packagist.org/packages/tecnickcom/tc-lib-file)
+*
+[![Develop Branch](https://img.shields.io/badge/-develop:-gray.svg)](https://github.com/tecnickcom/tc-lib-file/tree/develop)
+[![Develop Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=develop)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=develop)
+[![Develop Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=develop&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=develop)
+
+[![Donate via PayPal](https://img.shields.io/badge/donate-paypal-87ceeb.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&currency_code=GBP&business=paypal@tecnick.com&item_name=donation%20for%20tc-lib-file%20project)
+*Please consider supporting this project by making a donation via [PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&currency_code=GBP&business=paypal@tecnick.com&item_name=donation%20for%20tc-lib-file%20project)*
 
 * **category**    Library
 * **package**     \Com\Tecnick\File
 * **author**      Nicola Asuni <info@tecnick.com>
 * **copyright**   2015-2015 Nicola Asuni - Tecnick.com LTD
 * **license**     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
-* **link**       https://github.com/tecnickcom/tc-lib-file
-
-## Status
-* **MASTER**: [![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=master)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=master)
-[![Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=master&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=master)
-* **DEVELOP**: [![Build Status](https://secure.travis-ci.org/tecnickcom/tc-lib-file.png?branch=develop)](https://travis-ci.org/tecnickcom/tc-lib-file?branch=develop)
-[![Coverage Status](https://coveralls.io/repos/tecnickcom/tc-lib-file/badge.svg?branch=develop&service=github)](https://coveralls.io/github/tecnickcom/tc-lib-file?branch=develop)
-
+* **link**        https://github.com/tecnickcom/tc-lib-file
 
 ## Description
 
 This library includes utility classes to read byte-level data.
 
-The initial source code has been extracted from TCPDF (<http://www.tcpdf.org>).
+The initial source code has been derived from [TCPDF](<http://www.tcpdf.org>).
 
 
 ## Getting started
@@ -75,7 +80,7 @@ Please check all the available options using `make help`.
 
 Examples are located in the `example` directory.
 
-Start a development server (requires PHP 5.5) using the command:
+Start a development server (requires PHP 5.4) using the command:
 
 ```
 make server
