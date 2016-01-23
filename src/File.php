@@ -42,7 +42,7 @@ class File
      *
      * @throws FileException in case of error
      */
-    public static function fopenLocal($filename, $mode)
+    public function fopenLocal($filename, $mode)
     {
         if (strpos($filename, '://') === false) {
             $filename = 'file://'.$filename;
