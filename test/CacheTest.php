@@ -34,7 +34,13 @@ class CacheTest extends \PHPUnit_Framework_TestCase
     {
         //$this->markTestSkipped(); // skip this test
 
-        $this->obj = new \Com\Tecnick\File\Cache('12_aZ_34');
+        $this->obj = new \Com\Tecnick\File\Cache('1_2-a+B/c');
+    }
+    
+    public function testAutoPrefix()
+    {
+        $obj = new \Com\Tecnick\File\Cache();
+        $this->assertNotEmpty($obj->getFilePrefix());
     }
     
     public function testGetCachePath()
@@ -54,13 +60,13 @@ class CacheTest extends \PHPUnit_Framework_TestCase
     public function testGetFilePrefix()
     {
         $val = $this->obj->getFilePrefix();
-        $this->assertEquals('_x_12az34_', $val);
+        $this->assertEquals('_1_2-a-B_c_', $val);
     }
     
     public function testGetNewFileName()
     {
         $val = $this->obj->getNewFileName('tst', '0123');
-        $this->assertRegexp('/_x_12az34_tst_0123_/', $val);
+        $this->assertRegexp('/_1_2-a-B_c_tst_0123_/', $val);
     }
     
     public function testDelete()

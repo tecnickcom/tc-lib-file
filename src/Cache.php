@@ -49,12 +49,14 @@ class Cache
      *
      * @param string $prefix Common prefix to be used for all cache files
      */
-    public function __construct($prefix)
+    public function __construct($prefix = null)
     {
         $this->defineSystemCachePath();
         $this->setCachePath();
-        $prefix = strtolower(preg_replace('/[^a-z0-9]/i', '', $prefix));
-        self::$prefix = '_x_'.$prefix.'_';
+        if ($prefix === null) {
+            $prefix = rtrim(base64_encode(pack('H*', md5(uniqid(rand(), true)))), '=');
+        }
+        self::$prefix = '_'.preg_replace('/[^a-zA-Z0-9_\-]/', '', strtr($prefix, '+/', '-_')).'_';
     }
 
     /**
