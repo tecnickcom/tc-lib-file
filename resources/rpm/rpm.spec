@@ -17,6 +17,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-%(%{__id_u} -n)
 BuildArch: noarch
 
 Requires:  php(language) >= 5.4.0
+Requires:  php-curl
 Requires:  php-pcre
 
 Provides:  php-composer(%{c_vendor}/%{gh_project}) = %{version}
@@ -43,5 +44,7 @@ rm -rf $RPM_BUILD_ROOT
 #%config(noreplace) %{_configpath}*
 
 %changelog
+* Sun Feb 05 2017 Nicola Asuni <info@tecnick.com> 1.6.4-1
+- Update dependencies
 * Mon Jul 27 2015 Nicola Asuni <info@tecnick.com> 1.0.0-1
 - Initial Commit
