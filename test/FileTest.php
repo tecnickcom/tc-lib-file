@@ -15,6 +15,8 @@
 
 namespace Test;
 
+use PHPUnit\Framework\TestCase;
+
 /**
  * File Color class test
  *
@@ -26,7 +28,7 @@ namespace Test;
  * @license     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link        https://github.com/tecnickcom/tc-lib-file
  */
-class FileTest extends \PHPUnit_Framework_TestCase
+class FileTest extends TestCase
 {
     protected $obj = null;
 
@@ -43,15 +45,19 @@ class FileTest extends \PHPUnit_Framework_TestCase
         fclose($handle);
     }
 
+    /**
+     * @expectedException \Com\Tecnick\File\Exception
+     */
     public function testFopenLocalNonLocal()
     {
-        $this->setExpectedException('\Com\Tecnick\File\Exception');
         $this->obj->fopenLocal('http://www.example.com/test.txt', 'r');
     }
 
+    /**
+     * @expectedException \Com\Tecnick\File\Exception
+     */
     public function testFopenLocalMissing()
     {
-        $this->setExpectedException('\Com\Tecnick\File\Exception');
         $this->obj->fopenLocal('/missing_error.txt', 'r');
     }
 
@@ -74,9 +80,11 @@ class FileTest extends \PHPUnit_Framework_TestCase
         fclose($handle);
     }
 
+    /**
+     * @expectedException \Com\Tecnick\File\Exception
+     */
     public function testRfReadException()
     {
-        $this->setExpectedException('\Com\Tecnick\File\Exception');
         $this->obj->rfRead(0, 2);
     }
 
@@ -141,9 +149,11 @@ class FileTest extends \PHPUnit_Framework_TestCase
         );
     }
 
+    /**
+     * @expectedException \Com\Tecnick\File\Exception
+     */
     public function testFileGetContentsException()
     {
-        $this->setExpectedException('\Com\Tecnick\File\Exception');
         $this->obj->fileGetContents('missing.txt');
     }
 
@@ -153,10 +163,12 @@ class FileTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals('<?php', substr($res, 0, 5));
     }
 
+    /**
+     * @expectedException \Com\Tecnick\File\Exception
+     */
     public function testFileGetContentsCurl()
     {
         define('FORCE_CURL', true);
-        $this->setExpectedException('\Com\Tecnick\File\Exception');
         $this->obj->fileGetContents('http://www.example.com/test.txt');
     }
 }
