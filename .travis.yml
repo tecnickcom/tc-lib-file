@@ -18,13 +18,10 @@ php:
   - 7.0
   - 7.1
   - 7.2
-  - hhvm-3.18
-  - hhvm-nightly
   - nightly
 
 matrix:
   allow_failures:
-    - php: hhvm-nightly
     - php: nightly
 
 addons:
