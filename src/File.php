@@ -38,7 +38,7 @@ class File
      * @param string $filename Name of the file to open
      * @param string $mode     The fopen mode parameter specifies the type of access you require to the stream
      *
-     * @return Returns a file pointer resource on success
+     * @return resource Returns a file pointer resource on success
      *
      * @throws FileException in case of error
      */
@@ -61,7 +61,7 @@ class File
      *
      * @param resource $handle A file system pointer resource that is typically created using fopen().
      *
-     * @return 4-byte integer
+     * @return int 4-byte integer
      */
     public function fReadInt($handle)
     {
@@ -191,7 +191,7 @@ class File
     /**
      * Replace URL relative path with full real server path
      *
-     * @param string $path Relative URL path
+     * @param string $file Relative URL path
      *
      * @return string
      */
@@ -243,7 +243,7 @@ class File
     /**
      * Add missing local URL protocol
      *
-     * @param string $file Relative URL path
+     * @param string $url Relative URL path
      *
      * @return string local path or original $file
      */

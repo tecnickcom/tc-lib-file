@@ -15,8 +15,6 @@
 
 namespace Com\Tecnick\File;
 
-use \Com\Tecnick\File\Exception as FileException;
-
 /**
  * Com\Tecnick\File\Dir
  *
