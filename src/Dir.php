@@ -41,17 +41,17 @@ class Dir
     public function findParentDir($name, $dir = __DIR__)
     {
         while (!empty($dir)) {
-            if ($dir == '/') {
+            if ($dir == dirname($dir)) {
                 $dir = '';
             }
-            if (@is_writable($dir.'/'.$name)) {
-                $dir = $dir.'/'.$name;
+            if (@is_writable($dir.DIRECTORY_SEPARATOR.$name)) {
+                $dir = $dir.DIRECTORY_SEPARATOR.$name;
                 break;
             }
             $dir = dirname($dir);
         }
-        if (substr($dir, -1) !== '/') {
-            $dir .= '/';
+        if (substr($dir, -1) !== DIRECTORY_SEPARATOR) {
+            $dir .= DIRECTORY_SEPARATOR;
         }
         return $dir;
     }
