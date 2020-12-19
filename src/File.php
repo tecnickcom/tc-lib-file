@@ -84,7 +84,10 @@ class File
      */
     public function rfRead($handle, $length)
     {
-        $data = @fread($handle, $length);
+        $data = false;
+        if (is_resource($handle)) {
+            $data = @fread($handle, $length);
+        }
         if ($data === false) {
             throw new FileException('unable to read the file');
         }
