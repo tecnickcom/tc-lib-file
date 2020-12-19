@@ -28,17 +28,13 @@ use PHPUnit\Framework\TestCase;
  * @license     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link        https://github.com/tecnickcom/tc-lib-pdf-filecache
  */
-class CacheTest extends TestCase
+class CacheTest extends TestUtil
 {
-    protected $obj = null;
-
-    public function setUp()
+    protected function getTestObject()
     {
-        //$this->markTestSkipped(); // skip this test
-
-        $this->obj = new \Com\Tecnick\File\Cache('1_2-a+B/c');
+        return new \Com\Tecnick\File\Cache('1_2-a+B/c');
     }
-    
+
     public function testAutoPrefix()
     {
         $obj = new \Com\Tecnick\File\Cache();
@@ -47,51 +43,55 @@ class CacheTest extends TestCase
     
     public function testGetCachePath()
     {
-        $val = $this->obj->getCachePath();
+        $testObj = $this->getTestObject();
+        $val = $testObj->getCachePath();
         $this->assertEquals('/', $val[0]);
         $this->assertEquals('/', substr($val, -1));
 
-        $this->obj->setCachePath();
-        $this->assertEquals($val, $this->obj->getCachePath());
+        $testObj->setCachePath();
+        $this->assertEquals($val, $testObj->getCachePath());
 
         $path = '/tmp';
-        $this->obj->setCachePath($path);
-        $this->assertEquals('/tmp/', $this->obj->getCachePath());
+        $testObj->setCachePath($path);
+        $this->assertEquals('/tmp/', $testObj->getCachePath());
     }
     
     public function testGetFilePrefix()
     {
-        $val = $this->obj->getFilePrefix();
+        $testObj = $this->getTestObject();
+        $val = $testObj->getFilePrefix();
         $this->assertEquals('_1_2-a-B_c_', $val);
     }
     
     public function testGetNewFileName()
     {
-        $val = $this->obj->getNewFileName('tst', '0123');
-        $this->assertRegexp('/_1_2-a-B_c_tst_0123_/', $val);
+        $testObj = $this->getTestObject();
+        $val = $testObj->getNewFileName('tst', '0123');
+        $this->bcAssertMatchesRegularExpression('/_1_2-a-B_c_tst_0123_/', $val);
     }
     
     public function testDelete()
     {
+        $testObj = $this->getTestObject();
         $idk = 0;
         for ($idx = 1; $idx <=2; ++$idx) {
             for ($idy = 1; $idy <=2; ++$idy) {
-                $file[$idk] = $this->obj->getNewFileName($idx, $idy);
+                $file[$idk] = $testObj->getNewFileName($idx, $idy);
                 file_put_contents($file[$idk], '');
                 $this->assertTrue(file_exists($file[$idk]));
                 ++$idk;
             }
         }
 
-        $this->obj->delete('2', '1');
+        $testObj->delete('2', '1');
         $this->assertFalse(file_exists($file[2]));
 
-        $this->obj->delete('1');
+        $testObj->delete('1');
         $this->assertFalse(file_exists($file[0]));
         $this->assertFalse(file_exists($file[1]));
         $this->assertTrue(file_exists($file[3]));
 
-        $this->obj->delete();
+        $testObj->delete();
         $this->assertFalse(file_exists($file[3]));
     }
 }

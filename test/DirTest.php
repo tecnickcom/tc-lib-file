@@ -28,14 +28,11 @@ use PHPUnit\Framework\TestCase;
  * @license     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link        https://github.com/tecnickcom/tc-lib-file
  */
-class DirTest extends TestCase
+class DirTest extends TestUtil
 {
-    protected $obj = null;
-
-    public function setUp()
+    protected function getTestObject()
     {
-        //$this->markTestSkipped(); // skip this test
-        $this->obj = new \Com\Tecnick\File\Dir();
+        return new \Com\Tecnick\File\Dir();
     }
 
     /**
@@ -43,8 +40,9 @@ class DirTest extends TestCase
      */
     public function testGetAltFilePaths($name, $expected)
     {
-        $dir = $this->obj->findParentDir($name);
-        $this->assertRegexp('#'.$expected.'#', $dir);
+        $testObj = $this->getTestObject();
+        $dir = $testObj->findParentDir($name);
+        $this->bcAssertMatchesRegularExpression('#'.$expected.'#', $dir);
     }
 
     public function getAltFilePathsDataProvider()

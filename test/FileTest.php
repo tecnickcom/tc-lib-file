@@ -28,43 +28,40 @@ use PHPUnit\Framework\TestCase;
  * @license     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link        https://github.com/tecnickcom/tc-lib-file
  */
-class FileTest extends TestCase
+class FileTest extends TestUtil
 {
-    protected $obj = null;
-
-    public function setUp()
+    protected function getTestObject()
     {
-        //$this->markTestSkipped(); // skip this test
-        $this->obj = new \Com\Tecnick\File\File();
+        return new \Com\Tecnick\File\File();
     }
 
     public function testFopenLocal()
     {
-        $handle = $this->obj->fopenLocal(__FILE__, 'r');
-        $this->assertInternalType('resource', $handle);
+        $testObj = $this->getTestObject();
+        $handle = $testObj->fopenLocal(__FILE__, 'r');
+        $this->bcAssertIsResource($handle);
         fclose($handle);
     }
 
-    /**
-     * @expectedException \Com\Tecnick\File\Exception
-     */
     public function testFopenLocalNonLocal()
     {
-        $this->obj->fopenLocal('http://www.example.com/test.txt', 'r');
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
+        $testObj = $this->getTestObject();
+        $testObj->fopenLocal('http://www.example.com/test.txt', 'r');
     }
 
-    /**
-     * @expectedException \Com\Tecnick\File\Exception
-     */
     public function testFopenLocalMissing()
     {
-        $this->obj->fopenLocal('/missing_error.txt', 'r');
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
+        $testObj = $this->getTestObject();
+        $testObj->fopenLocal('/missing_error.txt', 'r');
     }
 
     public function testfReadInt()
     {
+        $testObj = $this->getTestObject();
         $handle = fopen(__FILE__, 'r');
-        $res = $this->obj->fReadInt($handle);
+        $res = $testObj->fReadInt($handle);
         // '<?ph' = 60 63 112 104 = 00111100 00111111 01110000 01101000 = 1010790504
         $this->assertEquals(1010790504, $res);
         fclose($handle);
@@ -72,20 +69,20 @@ class FileTest extends TestCase
 
     public function testRfRead()
     {
+        $testObj = $this->getTestObject();
         $handle = fopen(dirname(__DIR__).'/src/File.php', 'rb');
-        $res = $this->obj->rfRead($handle, 2);
+        $res = $testObj->rfRead($handle, 2);
         $this->assertEquals('<?', $res);
-        $res = $this->obj->rfRead($handle, 3);
+        $res = $testObj->rfRead($handle, 3);
         $this->assertEquals('php', $res);
         fclose($handle);
     }
 
-    /**
-     * @expectedException \Com\Tecnick\File\Exception
-     */
     public function testRfReadException()
     {
-        $this->obj->rfRead(0, 2);
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
+        $testObj = $this->getTestObject();
+        $testObj->rfRead(0, 2);
     }
 
     /**
@@ -93,11 +90,12 @@ class FileTest extends TestCase
      */
     public function testGetAltFilePaths($file, $expected)
     {
+        $testObj = $this->getTestObject();
         $_SERVER['DOCUMENT_ROOT'] = '/var/www';
         $_SERVER['HTTP_HOST'] = 'localhost';
         $_SERVER['HTTPS'] = 'on';
         $_SERVER['SCRIPT_URI'] = 'https://localhost/path/example.php';
-        $alt = $this->obj->getAltFilePaths($file);
+        $alt = $testObj->getAltFilePaths($file);
         $this->assertEquals($expected, $alt);
     }
 
@@ -149,26 +147,25 @@ class FileTest extends TestCase
         );
     }
 
-    /**
-     * @expectedException \Com\Tecnick\File\Exception
-     */
     public function testFileGetContentsException()
     {
-        $this->obj->fileGetContents('missing.txt');
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
+        $testObj = $this->getTestObject();
+        $testObj->fileGetContents('missing.txt');
     }
 
     public function testFileGetContents()
     {
-        $res = $this->obj->fileGetContents(__FILE__);
+        $testObj = $this->getTestObject();
+        $res = $testObj->fileGetContents(__FILE__);
         $this->assertEquals('<?php', substr($res, 0, 5));
     }
 
-    /**
-     * @expectedException \Com\Tecnick\File\Exception
-     */
     public function testFileGetContentsCurl()
     {
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
+        $testObj = $this->getTestObject();
         define('FORCE_CURL', true);
-        $this->obj->fileGetContents('http://www.example.com/test.txt');
+        $testObj->fileGetContents('http://www.example.com/test.txt');
     }
 }

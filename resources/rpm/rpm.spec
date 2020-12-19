@@ -27,7 +27,7 @@ Provides:  php-%{gh_project} = %{version}
 This library includes PHP classes to read byte-level data from files.
 
 %build
-(cd %{_current_directory} && make build)
+#(cd %{_current_directory} && make build)
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -35,7 +35,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %clean
 rm -rf $RPM_BUILD_ROOT
-(cd %{_current_directory} && make clean)
+#(cd %{_current_directory} && make clean)
 
 %files
 %attr(-,root,root) %{_libpath}

@@ -28,20 +28,17 @@ use PHPUnit\Framework\TestCase;
  * @license     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link        https://github.com/tecnickcom/tc-lib-file
  */
-class ByteTest extends TestCase
+class ByteTest extends TestUtil
 {
-    protected $obj = null;
-
-    public function setUp()
+    protected function getTestObject()
     {
-        //$this->markTestSkipped(); // skip this test
         $str = chr(0).chr(0).chr(0).chr(0)
             .chr(1).chr(3).chr(7).chr(15)
             .chr(31).chr(63).chr(127).chr(255)
             .chr(254).chr(252).chr(248).chr(240)
             .chr(224).chr(192).chr(128).chr(0)
             .chr(255).chr(255).chr(255).chr(255);
-        $this->obj = new \Com\Tecnick\File\Byte($str);
+        return new \Com\Tecnick\File\Byte($str);
     }
 
     /**
@@ -49,7 +46,8 @@ class ByteTest extends TestCase
      */
     public function testGetByte($offset, $expected)
     {
-        $res = $this->obj->getByte($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getByte($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -88,7 +86,8 @@ class ByteTest extends TestCase
      */
     public function testGetULong($offset, $expected)
     {
-        $res = $this->obj->getULong($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getULong($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -124,7 +123,8 @@ class ByteTest extends TestCase
      */
     public function testGetUShort($offset, $expected)
     {
-        $res = $this->obj->getUShort($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getUShort($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -133,7 +133,8 @@ class ByteTest extends TestCase
      */
     public function testGetUFWord($offset, $expected)
     {
-        $res = $this->obj->getUFWord($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getUFWord($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -171,7 +172,8 @@ class ByteTest extends TestCase
      */
     public function testGetShort($offset, $expected)
     {
-        $res = $this->obj->getShort($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getShort($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -209,7 +211,8 @@ class ByteTest extends TestCase
      */
     public function testGetFWord($offset, $expected)
     {
-        $res = $this->obj->getFWord($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getFWord($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -247,7 +250,8 @@ class ByteTest extends TestCase
      */
     public function testGetFixed($offset, $expected)
     {
-        $res = $this->obj->getFixed($offset);
+        $testObj = $this->getTestObject();
+        $res = $testObj->getFixed($offset);
         $this->assertEquals($expected, $res);
     }
 
