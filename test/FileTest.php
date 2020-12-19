@@ -80,9 +80,10 @@ class FileTest extends TestUtil
 
     public function testRfReadException()
     {
-        $this->bcExpectException('\Exception');
+        $this->bcExpectException('\Com\Tecnick\File\Exception');
         $testObj = $this->getTestObject();
-        $testObj->rfRead(0, 2);
+        $handle = fopen('/', 'r');
+        $testObj->rfRead($handle, 2);
     }
 
     /**
