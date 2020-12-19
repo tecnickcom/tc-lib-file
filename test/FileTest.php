@@ -82,8 +82,7 @@ class FileTest extends TestUtil
     {
         $this->bcExpectException('\Com\Tecnick\File\Exception');
         $testObj = $this->getTestObject();
-        $handle = fopen('/', 'r');
-        $testObj->rfRead($handle, 2);
+        $testObj->rfRead(null, 2);
     }
 
     /**
