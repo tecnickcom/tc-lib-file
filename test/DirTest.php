@@ -45,7 +45,7 @@ class DirTest extends TestUtil
         $this->bcAssertMatchesRegularExpression('#'.$expected.'#', $dir);
     }
 
-    public function getAltFilePathsDataProvider()
+    public static function getAltFilePathsDataProvider()
     {
         return array(
             array('', '/src/'),

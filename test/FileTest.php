@@ -99,7 +99,7 @@ class FileTest extends TestUtil
         $this->assertEquals($expected, $alt);
     }
 
-    public function getAltFilePathsDataProvider()
+    public static function getAltFilePathsDataProvider()
     {
         return array(
             array(

@@ -51,7 +51,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getByteDataProvider()
+    public static function getByteDataProvider()
     {
         return array(
             array(0, 0),
@@ -91,7 +91,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getULongDataProvider()
+    public static function getULongDataProvider()
     {
         return array(
             array(0, 0),
@@ -138,7 +138,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getUShortDataProvider()
+    public static function getUShortDataProvider()
     {
         return array(
             array(0, 0),
@@ -177,7 +177,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getShortDataProvider()
+    public static function getShortDataProvider()
     {
         return array(
             array(0, 0),
@@ -216,7 +216,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getFWordDataProvider()
+    public static function getFWordDataProvider()
     {
         return array(
             array(0, 0),
@@ -255,7 +255,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    public function getFixedDataProvider()
+    public static function getFixedDataProvider()
     {
         return array(
             array(0, 0),
