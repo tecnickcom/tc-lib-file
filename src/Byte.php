@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Byte.php
  *
@@ -139,6 +140,6 @@ class Byte
     public function getFixed($offset)
     {
         // mantissa.fraction
-        return (float)($this->getFWord($offset).'.'.$this->getUShort($offset + 2));
+        return (float)($this->getFWord($offset) . '.' . $this->getUShort($offset + 2));
     }
 }

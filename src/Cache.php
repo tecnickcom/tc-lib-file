@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Cache.php
  *
@@ -54,7 +55,7 @@ class Cache
         if ($prefix === null) {
             $prefix = rtrim(base64_encode(pack('H*', md5(uniqid(rand(), true)))), '=');
         }
-        self::$prefix = '_'.preg_replace('/[^a-zA-Z0-9_\-]/', '', strtr($prefix, '+/', '-_')).'_';
+        self::$prefix = '_' . preg_replace('/[^a-zA-Z0-9_\-]/', '', strtr($prefix, '+/', '-_')) . '_';
     }
 
     /**
@@ -101,7 +102,7 @@ class Cache
      */
     public function getNewFileName($type = 'tmp', $key = '0')
     {
-        return tempnam(self::$path, self::$prefix.$type.'_'.$key.'_');
+        return tempnam(self::$path, self::$prefix . $type . '_' . $key . '_');
     }
 
     /**
@@ -113,11 +114,11 @@ class Cache
      */
     public function delete($type = null, $key = null)
     {
-        $path = self::$path.self::$prefix;
+        $path = self::$path . self::$prefix;
         if ($type !== null) {
-            $path .= $type.'_';
+            $path .= $type . '_';
             if ($key !== null) {
-                $path .= $key.'_';
+                $path .= $key . '_';
             }
         }
         $path .= '*';

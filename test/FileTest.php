@@ -1,4 +1,5 @@
 <?php
+
 /**
  * FileTest.php
  *
@@ -70,7 +71,7 @@ class FileTest extends TestUtil
     public function testRfRead()
     {
         $testObj = $this->getTestObject();
-        $handle = fopen(dirname(__DIR__).'/src/File.php', 'rb');
+        $handle = fopen(dirname(__DIR__) . '/src/File.php', 'rb');
         $res = $testObj->rfRead($handle, 2);
         $this->assertEquals('<?', $res);
         $res = $testObj->rfRead($handle, 3);

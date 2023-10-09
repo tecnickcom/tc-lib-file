@@ -1,4 +1,5 @@
 <?php
+
 /**
  * DirTest.php
  *
@@ -42,7 +43,7 @@ class DirTest extends TestUtil
     {
         $testObj = $this->getTestObject();
         $dir = $testObj->findParentDir($name);
-        $this->bcAssertMatchesRegularExpression('#'.$expected.'#', $dir);
+        $this->bcAssertMatchesRegularExpression('#' . $expected . '#', $dir);
     }
 
     public static function getAltFilePathsDataProvider()
