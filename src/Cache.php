@@ -34,7 +34,7 @@ class Cache
      *
      * @var string
      */
-    protected static $path;
+    protected static $path = '';
 
     /**
      * File prefix
@@ -53,7 +53,7 @@ class Cache
         $this->defineSystemCachePath();
         $this->setCachePath();
         if ($prefix === null) {
-            $prefix = rtrim(base64_encode(pack('H*', md5(uniqid(rand(), true)))), '=');
+            $prefix = rtrim(base64_encode(pack('H*', md5(uniqid((string)rand(), true)))), '=');
         }
         self::$prefix = '_' . preg_replace('/[^a-zA-Z0-9_\-]/', '', strtr($prefix, '+/', '-_')) . '_';
     }
@@ -76,10 +76,11 @@ class Cache
     public function setCachePath($path = null)
     {
         if (($path === null) || !is_writable($path)) {
+            /* @phpstan-ignore-next-line */
             self::$path = K_PATH_CACHE;
-        } else {
-            self::$path = $this->normalizePath($path);
+            return;
         }
+        self::$path = $this->normalizePath($path);
     }
 
     /**
@@ -136,8 +137,8 @@ class Cache
         if (defined('K_PATH_CACHE')) {
             return;
         }
-        $K_PATH_CACHE = ini_get('upload_tmp_dir') ? ini_get('upload_tmp_dir') : sys_get_temp_dir();
-        define('K_PATH_CACHE', $this->normalizePath($K_PATH_CACHE));
+        $kPathCache = ini_get('upload_tmp_dir') ? ini_get('upload_tmp_dir') : sys_get_temp_dir();
+        define('K_PATH_CACHE', $this->normalizePath($kPathCache));
     }
 
     /**

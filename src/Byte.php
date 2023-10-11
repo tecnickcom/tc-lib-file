@@ -134,7 +134,7 @@ class Byte
      *
      * @param int $offset Point from where to read the data.
      *
-     * @return int 16 bit value
+     * @return float
      *
      */
     public function getFixed($offset)

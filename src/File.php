@@ -147,7 +147,7 @@ class File
      *
      * @param string $url URL to read.
      *
-     * @return string File content or FALSE in case the file is unreadable or curl is not available
+     * @return string|bool
      */
     public function getUrlData($url)
     {
