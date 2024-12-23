@@ -36,6 +36,38 @@ use Com\Tecnick\File\Exception as FileException;
 class File
 {
     /**
+     * Array of default cURL options for curl_setopt_array.
+     *
+     * @var array<int, bool|int|string> cURL options.
+     */
+    protected const CURLOPT_DEFAULT = [
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP | CURLPROTO_FTP | CURLPROTO_FTPS,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_USERAGENT => 'tc-lib-file',
+    ];
+
+    /**
+     * Array of fixed cURL options for curl_setopt_array.
+     *
+     * @var array<int, bool|int|string> cURL options.
+     */
+    protected const CURLOPT_FIXED = [
+        CURLOPT_FAILONERROR => true,
+        CURLOPT_RETURNTRANSFER => true,
+    ];
+
+    /**
+     * Custom cURL options for curl_setopt_array.
+     *
+     * @var array<int, bool|int|string> cURL options.
+     */
+    public array $curlopts = [];
+
+    /**
      * Wrapper to use fopen only with local files
      *
      * @param string $filename Name of the file to open
@@ -170,27 +202,23 @@ class File
 
         // try to get remote file data using cURL
         $curlHandle = curl_init();
-        curl_setopt($curlHandle, CURLOPT_URL, $url);
-        curl_setopt($curlHandle, CURLOPT_BINARYTRANSFER, true);
-        curl_setopt($curlHandle, CURLOPT_FAILONERROR, true);
-        curl_setopt($curlHandle, CURLOPT_RETURNTRANSFER, true);
-        if ((ini_get('open_basedir') == '') && (ini_get('safe_mode') === '' || ini_get('safe_mode') === false)) {
-            curl_setopt($curlHandle, CURLOPT_FOLLOWLOCATION, true);
+
+        $curlopts = [];
+
+        if (
+            (ini_get('open_basedir') == '')
+            && (ini_get('safe_mode') === ''
+            || ini_get('safe_mode') === false)
+        ) {
+            $curlopts[CURLOPT_FOLLOWLOCATION] = true;
         }
 
-        curl_setopt($curlHandle, CURLOPT_CONNECTTIMEOUT, 5);
-        curl_setopt($curlHandle, CURLOPT_TIMEOUT, 30);
-        curl_setopt($curlHandle, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($curlHandle, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($curlHandle, CURLOPT_USERAGENT, 'tc-lib-file');
-        curl_setopt($curlHandle, CURLOPT_MAXREDIRS, 5);
-        if (defined('CURLOPT_PROTOCOLS')) {
-            curl_setopt(
-                $curlHandle,
-                CURLOPT_PROTOCOLS,
-                CURLPROTO_HTTPS | CURLPROTO_HTTP | CURLPROTO_FTP | CURLPROTO_FTPS
-            );
-        }
+        $curlopts = array_replace($curlopts, self::CURLOPT_DEFAULT);
+        $curlopts = array_replace($curlopts, $this->curlopts);
+        $curlopts = array_replace($curlopts, self::CURLOPT_FIXED);
+        $curlopts[CURLOPT_URL] = $url;
+
+        curl_setopt_array($curlHandle, $curlopts);
 
         $ret = curl_exec($curlHandle);
         curl_close($curlHandle);
