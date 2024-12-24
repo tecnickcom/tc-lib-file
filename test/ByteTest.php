@@ -16,6 +16,8 @@
 
 namespace Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * Byte Color class test
  *
@@ -40,9 +42,7 @@ class ByteTest extends TestUtil
         return new \Com\Tecnick\File\Byte($str);
     }
 
-    /**
-     * @dataProvider getByteDataProvider
-     */
+    #[DataProvider('getByteDataProvider')]
     public function testGetByte(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -83,9 +83,7 @@ class ByteTest extends TestUtil
         ];
     }
 
-    /**
-     * @dataProvider getULongDataProvider
-     */
+    #[DataProvider('getULongDataProvider')]
     public function testGetULong(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -123,9 +121,7 @@ class ByteTest extends TestUtil
         ];
     }
 
-    /**
-     * @dataProvider getUShortDataProvider
-     */
+    #[DataProvider('getUShortDataProvider')]
     public function testGetUShort(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -133,9 +129,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    /**
-     * @dataProvider getUShortDataProvider
-     */
+    #[DataProvider('getUShortDataProvider')]
     public function testGetUFWord(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -175,9 +169,7 @@ class ByteTest extends TestUtil
         ];
     }
 
-    /**
-     * @dataProvider getShortDataProvider
-     */
+    #[DataProvider('getShortDataProvider')]
     public function testGetShort(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -217,9 +209,7 @@ class ByteTest extends TestUtil
         ];
     }
 
-    /**
-     * @dataProvider getFWordDataProvider
-     */
+    #[DataProvider('getFWordDataProvider')]
     public function testGetFWord(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -259,9 +249,7 @@ class ByteTest extends TestUtil
         ];
     }
 
-    /**
-     * @dataProvider getFixedDataProvider
-     */
+    #[DataProvider('getFixedDataProvider')]
     public function testGetFixed(int $offset, int|float $expected): void
     {
         $byte = $this->getTestObject();

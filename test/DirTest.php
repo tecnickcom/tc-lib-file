@@ -16,6 +16,8 @@
 
 namespace Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * File Color class test
  *
@@ -34,9 +36,7 @@ class DirTest extends TestUtil
         return new \Com\Tecnick\File\Dir();
     }
 
-    /**
-     * @dataProvider getAltFilePathsDataProvider
-     */
+    #[DataProvider('getAltFilePathsDataProvider')]
     public function testGetAltFilePaths(string $name, string $expected): void
     {
         $testObj = $this->getTestObject();

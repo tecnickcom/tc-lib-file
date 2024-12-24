@@ -54,7 +54,7 @@ class Byte
     public function getByte(int $offset): int
     {
         $val = unpack('Ci', substr($this->str, $offset, 1));
-        return $val === false ? 0 : $val['i'];
+        return $val === false ? 0 : (is_int($val['i']) ? $val['i'] : 0);
     }
 
     /**
@@ -67,7 +67,7 @@ class Byte
     public function getULong(int $offset): int
     {
         $val = unpack('Ni', substr($this->str, $offset, 4));
-        return $val === false ? 0 : $val['i'];
+        return $val === false ? 0 : (is_int($val['i']) ? $val['i'] : 0);
     }
 
     /**
@@ -80,7 +80,7 @@ class Byte
     public function getUShort(int $offset): int
     {
         $val = unpack('ni', substr($this->str, $offset, 2));
-        return $val === false ? 0 : $val['i'];
+        return $val === false ? 0 : (is_int($val['i']) ? $val['i'] : 0);
     }
 
     /**
@@ -93,7 +93,7 @@ class Byte
     public function getShort(int $offset): int
     {
         $val = unpack('si', substr($this->str, $offset, 2));
-        return $val === false ? 0 : $val['i'];
+        return $val === false ? 0 : (is_int($val['i']) ? $val['i'] : 0);
     }
 
     /**

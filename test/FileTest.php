@@ -16,6 +16,8 @@
 
 namespace Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+
 /**
  * File Color class test
  *
@@ -89,9 +91,8 @@ class FileTest extends TestUtil
     /**
      * @param string $file     File path
      * @param array{string, array<int, string>}  $expected Expected result
-     *
-     * @dataProvider getAltFilePathsDataProvider
      */
+    #[DataProvider('getAltFilePathsDataProvider')]
     public function testGetAltFilePaths(string $file, array $expected): void
     {
         $testObj = $this->getTestObject();
