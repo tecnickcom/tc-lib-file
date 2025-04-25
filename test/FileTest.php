@@ -58,6 +58,13 @@ class FileTest extends TestUtil
         $file->fopenLocal('/missing_error.txt', 'r');
     }
 
+    public function testFopenLocalDoubleDot(): void
+    {
+        $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+        $file->fopenLocal('/tmp/invalid/../test.txt', 'r');
+    }
+
     public function testfReadInt(): void
     {
         $file = $this->getTestObject();
@@ -157,11 +164,25 @@ class FileTest extends TestUtil
         ];
     }
 
-    public function testFileGetContentsException(): void
+    public function testFileGetContentsMissingException(): void
     {
         $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fileGetContents('missing.txt');
+    }
+
+    public function testFileGetContentsDoubleDotException(): void
+    {
+        $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+        $file->fileGetContents('/tmp/something/../test.txt');
+    }
+
+    public function testFileGetContentsForbiddenProtocolException(): void
+    {
+        $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+        $file->fileGetContents('phar://test.txt');
     }
 
     public function testFileGetContents(): void
@@ -177,5 +198,27 @@ class FileTest extends TestUtil
         $file = $this->getTestObject();
         define('FORCE_CURL', true);
         $file->fileGetContents('http://www.example.com/test.txt');
+    }
+
+    public function testHasDoubleDots(): void
+    {
+        $file = $this->getTestObject();
+        $res = $file->hasDoubleDots('/tmp/../test.txt');
+        $this->assertTrue($res);
+        $res = $file->hasDoubleDots('/tmp/test.txt');
+        $this->assertFalse($res);
+    }
+
+    public function testHasForbiddenProtocol(): void
+    {
+        $file = $this->getTestObject();
+        $res = $file->hasForbiddenProtocol('phar://test.txt');
+        $this->assertTrue($res);
+        $res = $file->hasForbiddenProtocol('http://www.example.com/test.txt');
+        $this->assertFalse($res);
+        $res = $file->hasForbiddenProtocol('file://some/file.txt');
+        $this->assertFalse($res);
+        $res = $file->hasForbiddenProtocol('./some/file.txt');
+        $this->assertFalse($res);
     }
 }

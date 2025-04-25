@@ -72,7 +72,7 @@ class Cache
      */
     public function setCachePath(?string $path = null): void
     {
-        if (($path === null) || ! is_writable($path)) {
+        if (($path === null) || (strpos($path, '://') !== false) || ! is_writable($path)) {
             /* @phpstan-ignore-next-line */
             self::$path = K_PATH_CACHE;
             return;

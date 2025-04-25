@@ -79,6 +79,10 @@ class File
      */
     public function fopenLocal(string $filename, string $mode): mixed
     {
+        if ($this->hasDoubleDots($filename)) {
+            throw new FileException('path contains parent directory dots');
+        }
+
         if (! str_contains($filename, '://')) {
             $filename = 'file://' . $filename;
         } elseif (! str_starts_with($filename, 'file://')) {
@@ -173,6 +177,10 @@ class File
      */
     public function getFileData(string $file): string|false
     {
+        if ($this->hasDoubleDots($file) || $this->hasForbiddenProtocol($file)) {
+            return false;
+        }
+
         $ret = @file_get_contents($file);
         if ($ret !== false) {
             return $ret;
@@ -268,7 +276,7 @@ class File
     }
 
     /**
-     * Add missing local URL protocol
+     * Add missing local URL protocol.
      *
      * @param string $file Relative URL path
      *
@@ -284,7 +292,7 @@ class File
     }
 
     /**
-     * Get the default URL protocol (http or https)
+     * Get the default URL protocol (http or https).
      */
     protected function getDefaultUrlProtocol(): string
     {
@@ -301,7 +309,7 @@ class File
     }
 
     /**
-     * Add missing local URL protocol
+     * Add missing local URL protocol.
      *
      * @param string $url Relative URL path
      *
@@ -338,7 +346,7 @@ class File
     }
 
     /**
-     * Get an alternate URL from a file path
+     * Get an alternate URL from a file path.
      *
      * @param string $file File name and path
      *
@@ -349,8 +357,8 @@ class File
         if (
             isset($_SERVER['SCRIPT_URI'])
             && is_string($_SERVER['SCRIPT_URI'])
-            && (preg_match('%^(https?|ftp)://%', $file) === 0
-            || preg_match('%^(https?|ftp)://%', $file) === false)
+            && (preg_match('%^(ftp|https?)://%', $file) === 0
+            || preg_match('%^(ftp|https?)://%', $file) === false)
             && (preg_match('%^//%', $file) === 0
             || preg_match('%^//%', $file) === false)
         ) {
@@ -363,5 +371,30 @@ class File
         }
 
         return $file;
+    }
+
+    /**
+     * Check if the path contains parent directory dots ('..').
+     *
+     * @param string $path path to check
+     *
+     * @return boolean true if the path is relative
+     */
+    public static function hasDoubleDots($path)
+    {
+        return (strpos(str_ireplace('%2E', '.', html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..') !== false);
+    }
+
+    /**
+     * Check if the path contains a non-allowed protocol.
+     * If a protocol is present ('://'), then only 'file://' and 'https://' are allowed.
+     *
+     * @param string $path path to check.
+     *
+     * @return boolean true if the protocol is not allowed.
+     */
+    public static function hasForbiddenProtocol($path)
+    {
+        return ((strpos($path, '://') !== false) && (preg_match('%^(file|ftp|https?)://%', $path) !== 1));
     }
 }
