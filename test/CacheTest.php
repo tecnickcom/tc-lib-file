@@ -45,7 +45,7 @@ class CacheTest extends TestUtil
         $cache = $this->getTestObject();
         $cachePath = $cache->getCachePath();
         $this->assertEquals('/', $cachePath[0]);
-        $this->assertEquals('/', substr($cachePath, -1));
+        $this->assertEquals('/', \substr($cachePath, -1));
 
         $cache->setCachePath();
         $this->assertEquals($cachePath, $cache->getCachePath());
@@ -78,25 +78,25 @@ class CacheTest extends TestUtil
             for ($idy = 1; $idy <= 2; ++$idy) {
                 $file[$idk] = $cache->getNewFileName((string) $idx, (string) $idy);
                 $this->assertNotFalse($file[$idk]);
-                file_put_contents($file[$idk], '');
-                $this->assertTrue(file_exists($file[$idk]));
+                \file_put_contents($file[$idk], '');
+                $this->assertTrue(\file_exists($file[$idk]));
                 ++$idk;
             }
         }
 
         $cache->delete('2', '1');
         $this->assertNotFalse($file[2]);
-        $this->assertFalse(file_exists($file[2]));
+        $this->assertFalse(\file_exists($file[2]));
 
         $cache->delete('1');
         $this->assertNotFalse($file[0]);
-        $this->assertFalse(file_exists($file[0]));
+        $this->assertFalse(\file_exists($file[0]));
         $this->assertNotFalse($file[1]);
-        $this->assertFalse(file_exists($file[1]));
+        $this->assertFalse(\file_exists($file[1]));
         $this->assertNotFalse($file[3]);
-        $this->assertTrue(file_exists($file[3]));
+        $this->assertTrue(\file_exists($file[3]));
 
         $cache->delete();
-        $this->assertFalse(file_exists($file[3]));
+        $this->assertFalse(\file_exists($file[3]));
     }
 }

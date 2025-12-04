@@ -41,7 +41,7 @@ class FileTest extends TestUtil
         $file = $this->getTestObject();
         $handle = $file->fopenLocal(__FILE__, 'r');
         $this->bcAssertIsResource($handle);
-        fclose($handle);
+        \fclose($handle);
     }
 
     public function testFopenLocalNonLocal(): void
@@ -68,24 +68,24 @@ class FileTest extends TestUtil
     public function testfReadInt(): void
     {
         $file = $this->getTestObject();
-        $handle = fopen(__FILE__, 'r');
+        $handle = \fopen(__FILE__, 'r');
         $this->assertNotFalse($handle);
         $res = $file->fReadInt($handle);
         // '<?ph' = 60 63 112 104 = 00111100 00111111 01110000 01101000 = 1010790504
         $this->assertEquals(1_010_790_504, $res);
-        fclose($handle);
+        \fclose($handle);
     }
 
     public function testRfRead(): void
     {
         $file = $this->getTestObject();
-        $handle = fopen(dirname(__DIR__) . '/src/File.php', 'rb');
+        $handle = \fopen(\dirname(__DIR__) . '/src/File.php', 'rb');
         $this->assertNotFalse($handle);
         $res = $file->rfRead($handle, 2);
         $this->assertEquals('<?', $res);
         $res = $file->rfRead($handle, 3);
         $this->assertEquals('php', $res);
-        fclose($handle);
+        \fclose($handle);
     }
 
     public function testRfReadException(): void
@@ -189,14 +189,14 @@ class FileTest extends TestUtil
     {
         $file = $this->getTestObject();
         $res = $file->fileGetContents(__FILE__);
-        $this->assertEquals('<?php', substr($res, 0, 5));
+        $this->assertEquals('<?php', \substr($res, 0, 5));
     }
 
     public function testFileGetContentsCurl(): void
     {
         $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
-        define('FORCE_CURL', true);
+        \define('FORCE_CURL', true);
         $file->fileGetContents('http://www.example.com/test.txt');
     }
 

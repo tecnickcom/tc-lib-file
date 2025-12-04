@@ -51,10 +51,23 @@ class Cache
         $this->defineSystemCachePath();
         $this->setCachePath();
         if ($prefix === null) {
-            $prefix = rtrim(base64_encode(pack('H*', md5(uniqid((string) random_int(0, mt_getrandmax()), true)))), '=');
+            $prefix = \rtrim(
+                \base64_encode(
+                    \pack(
+                        'H*',
+                        \md5(
+                            \uniqid(
+                                (string) \random_int(0, \mt_getrandmax()),
+                                true
+                            ),
+                        ),
+                    ),
+                ),
+                '=',
+            );
         }
 
-        self::$prefix = '_' . preg_replace('/[^a-zA-Z0-9_\-]/', '', strtr($prefix, '+/', '-_')) . '_';
+        self::$prefix = '_' . \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) . '_';
     }
 
     /**
@@ -72,7 +85,7 @@ class Cache
      */
     public function setCachePath(?string $path = null): void
     {
-        if (($path === null) || (strpos($path, '://') !== false) || ! is_writable($path)) {
+        if (($path === null) || (\strpos($path, '://') !== false) || ! \is_writable($path)) {
             /* @phpstan-ignore-next-line */
             self::$path = K_PATH_CACHE;
             return;
@@ -99,7 +112,7 @@ class Cache
      */
     public function getNewFileName(string $type = 'tmp', string $key = '0'): string|bool
     {
-        return tempnam(self::$path, self::$prefix . $type . '_' . $key . '_');
+        return \tempnam(self::$path, self::$prefix . $type . '_' . $key . '_');
     }
 
     /**
@@ -119,7 +132,7 @@ class Cache
         }
 
         $path .= '*';
-        $files = glob($path);
+        $files = \glob($path);
         if ($files === []) {
             return;
         }
@@ -128,7 +141,7 @@ class Cache
             return;
         }
 
-        array_map('unlink', $files);
+        \array_map('unlink', $files);
     }
 
     /**
@@ -136,12 +149,12 @@ class Cache
      */
     protected function defineSystemCachePath(): void
     {
-        if (defined('K_PATH_CACHE')) {
+        if (\defined('K_PATH_CACHE')) {
             return;
         }
 
-        $kPathCache = ini_get('upload_tmp_dir') ?: sys_get_temp_dir();
-        define('K_PATH_CACHE', $this->normalizePath($kPathCache));
+        $kPathCache = \ini_get('upload_tmp_dir') ?: \sys_get_temp_dir();
+        \define('K_PATH_CACHE', $this->normalizePath($kPathCache));
     }
 
     /**
@@ -151,12 +164,12 @@ class Cache
      */
     protected function normalizePath(string $path): string
     {
-        $rpath = realpath($path);
+        $rpath = \realpath($path);
         if ($rpath === false) {
             return '';
         }
 
-        if (! str_ends_with($rpath, '/')) {
+        if (! \str_ends_with($rpath, '/')) {
             $rpath .= '/';
         }
 

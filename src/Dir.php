@@ -42,19 +42,19 @@ class Dir
     public function findParentDir(string $name, string $dir = __DIR__): string
     {
         while ($dir !== '') {
-            if ($dir === dirname($dir)) {
+            if ($dir === \dirname($dir)) {
                 $dir = '';
             }
 
-            if (@is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
+            if (@\is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
                 $dir = $dir . DIRECTORY_SEPARATOR . $name;
                 break;
             }
 
-            $dir = dirname($dir);
+            $dir = \dirname($dir);
         }
 
-        if (substr($dir, -1) !== DIRECTORY_SEPARATOR) {
+        if (\substr($dir, -1) !== DIRECTORY_SEPARATOR) {
             $dir .= DIRECTORY_SEPARATOR;
         }
 
