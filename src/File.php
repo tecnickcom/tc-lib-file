@@ -213,11 +213,7 @@ class File
 
         $curlopts = [];
 
-        if (
-            (\ini_get('open_basedir') == '')
-            && (\ini_get('safe_mode') === ''
-            || \ini_get('safe_mode') === false)
-        ) {
+        if (\ini_get('open_basedir') == '') {
             $curlopts[CURLOPT_FOLLOWLOCATION] = true;
         }
 
@@ -229,7 +225,6 @@ class File
         \curl_setopt_array($curlHandle, $curlopts);
 
         $ret = \curl_exec($curlHandle);
-        \curl_close($curlHandle);
         return $ret === true ? '' : $ret;
     }
 
