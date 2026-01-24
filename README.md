@@ -12,9 +12,9 @@
 
 * **category**    Library
 * **package**     \Com\Tecnick\File
-* **author**      Nicola Asuni <info@tecnick.com>
-* **copyright**   2015-2025 Nicola Asuni - Tecnick.com LTD
-* **license**     http://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+* **author**     2026 Nicola Asuni <info@tecnick.com>
+* **copyright**   2015-2026 Nicola Asuni - Tecnick.com LTD
+* **license**     https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
 * **link**        https://github.com/tecnickcom/tc-lib-file
 * **SRC DOC**     https://tcpdf.org/docs/srcdoc/tc-lib-file
 
@@ -105,4 +105,4 @@ require_once ('/usr/share/php/Com/Tecnick/File/autoload.php');
 
 ## Developer(s) Contact
 
-* Nicola Asuni <info@tecnick.com>
+*2026 Nicola Asuni <info@tecnick.com>
