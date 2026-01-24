@@ -6,7 +6,7 @@
  * @since     2015-07-28
  * @category  Library
  * @package   File
- * @author   2026 Nicola Asuni <info@tecnick.com>
+ * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-file
@@ -26,7 +26,7 @@ use Com\Tecnick\File\Exception as FileException;
  * @since     2015-07-28
  * @category  Library
  * @package   File
- * @author   2026 Nicola Asuni <info@tecnick.com>
+ * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-file
