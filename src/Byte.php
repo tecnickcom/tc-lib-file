@@ -71,6 +71,20 @@ class Byte
     }
 
     /**
+     * Get LONG from string (Big Endian 32-bit signed integer).
+     *
+     * @param int $offset Point from where to read the data
+     *
+     * @return int 32 bit value
+     */
+    public function getLong(int $offset): int
+    {
+        $u_val = $this->getULong($offset);
+        // Use bitwise two's complement uint32 to int32 formula
+        return ($u_val ^ 0x80000000) - 0x80000000;
+    }
+
+    /**
      * Get USHORT from string (Big Endian 16-bit unsigned integer).
      *
      * @param int $offset Point from where to read the data
@@ -92,8 +106,16 @@ class Byte
      */
     public function getShort(int $offset): int
     {
-        $val = \unpack('si', \substr($this->str, $offset, 2));
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
+        $val = \unpack('ni', \substr($this->str, $offset, 2));
+        if ($val === false) {
+            return 0;
+        }
+
+        if ($val['i'] > 0x7fff) {
+            $val['i'] -= 0x10000;
+        }
+
+        return \is_int($val['i']) ? $val['i'] : 0;
     }
 
     /**
@@ -117,22 +139,19 @@ class Byte
      */
     public function getFWord(int $offset): int
     {
-        $val = $this->getUShort($offset);
-        if ($val > 0x7fff) {
-            $val -= 0x10000;
-        }
-
-        return $val;
+        return $this->getShort($offset);
     }
 
     /**
-     * Get FIXED from string (32-bit signed fixed-point number (16.16).
+     * Get FIXED from string (Big Endian 32-bit signed fixed-point number (16.16)).
+     *
+     * A fixed-point 16.16 number is 'int16 + uint16/65536.0' where the divisor 65536=(1<<16).
+     * A simplified equivalent version is to read an int32 and divide by 65536.
      *
      * @param int $offset Point from where to read the data.
      */
     public function getFixed(int $offset): float
     {
-        // mantissa.fraction
-        return (float) ($this->getFWord($offset) . '.' . $this->getUShort($offset + 2));
+        return $this->getShort($offset) + $this->getUShort($offset + 2) / 65536.0;
     }
 }

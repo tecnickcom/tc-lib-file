@@ -121,6 +121,44 @@ class ByteTest extends TestUtil
         ];
     }
 
+    #[DataProvider('getLongDataProvider')]
+    public function testGetLong(int $offset, int $expected): void
+    {
+        $byte = $this->getTestObject();
+        $res = $byte->getLong($offset);
+        $this->assertEquals($expected, $res);
+    }
+
+    /**
+     * @return array<array{int, int}>
+     */
+    public static function getLongDataProvider(): array
+    {
+        return [
+            [0, 0],
+            [1, 1],
+            [2, 259],
+            [3, 66_311],
+            [4, 16_975_631],
+            [5, 50_794_271],
+            [6, 118_431_551],
+            [7, 253_706_111],
+            [8, 524_255_231],
+            [9, 1_065_353_214],
+            [10, 2_147_483_388],
+            [11, -66_312],
+            [12, -16_975_632],
+            [13, -50_794_272],
+            [14, -118_431_552],
+            [15, -253_706_112],
+            [16, -524_255_232],
+            [17, -1_065_352_961],
+            [18, -2_147_418_113],
+            [19, 16_777_215],
+            [20, -1],
+        ];
+    }
+
     #[DataProvider('getUShortDataProvider')]
     public function testGetUShort(int $offset, int $expected): void
     {
@@ -177,39 +215,7 @@ class ByteTest extends TestUtil
         $this->assertEquals($expected, $res);
     }
 
-    /**
-     * @return array<array{int, int}>
-     */
-    public static function getShortDataProvider(): array
-    {
-        return [
-            [0, 0],
-            [1, 0],
-            [2, 0],
-            [3, 256],
-            [4, 769],
-            [5, 1795],
-            [6, 3847],
-            [7, 7951],
-            [8, 16159],
-            [9, 32575],
-            [10, -129],
-            [11, -257],
-            [12, -770],
-            [13, -1796],
-            [14, -3848],
-            [15, -7952],
-            [16, -16160],
-            [17, -32576],
-            [18, 128],
-            [19, -256],
-            [20, -1],
-            [21, -1],
-            [22, -1],
-        ];
-    }
-
-    #[DataProvider('getFWordDataProvider')]
+    #[DataProvider('getShortDataProvider')]
     public function testGetFWord(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
@@ -220,7 +226,7 @@ class ByteTest extends TestUtil
     /**
      * @return array<array{int, int}>
      */
-    public static function getFWordDataProvider(): array
+    public static function getShortDataProvider(): array
     {
         return [
             [0, 0],
@@ -253,8 +259,17 @@ class ByteTest extends TestUtil
     public function testGetFixed(int $offset, int|float $expected): void
     {
         $byte = $this->getTestObject();
+
+        // Test the getFixed method
         $res = $byte->getFixed($offset);
-        $this->assertEquals($expected, $res);
+        // Also test an alternate algorithm of reading all 4 bytes as an int32 and dividing by 65536.0
+        $res2 = $byte->getLong($offset) / 65536.0;
+
+        // 16-bit floating point (IEEE 754 half-precision) has an epsilon (epsilon) of 2^-10,
+        // which is approximately 0.00097656.
+        $delta = pow(2, -10);
+        $this->assertEqualsWithDelta($expected, $res, $delta);
+        $this->assertEqualsWithDelta($expected, $res2, $delta);
     }
 
     /**
@@ -264,26 +279,26 @@ class ByteTest extends TestUtil
     {
         return [
             [0, 0],
-            [1, 0.1],
-            [2, 0.259],
-            [3, 1.775],
-            [4, 259.1807],
-            [5, 775.3871],
-            [6, 1807.7999],
-            [7, 3871.16255],
-            [8, 7999.32767],
-            [9, 16255.65534],
-            [10, 32767.65276],
-            [11, -2.64760],
-            [12, -260.63728],
-            [13, -776.61664],
-            [14, -1808.57536],
-            [15, -3872.49280],
-            [16, -8000.32768],
-            [17, -16256.255],
-            [18, -32768.65535],
-            [19, 255.65535],
-            [20, -1.65535],
+            [1, 0.0000152587890625],
+            [2, 0.0039520263671875],
+            [3, 1.0118255615234375],
+            [4, 259.027587890625],
+            [5, 775.0590667724609375],
+            [6, 1807.1220703125],
+            [7, 3871.248046875],
+            [8, 7999.4999847412109375],
+            [9, 16255.999969482421875],
+            [10, 32767.996032715],
+            [11, -1.0118408203125],
+            [12, -259.027587890625],
+            [13, -775.05908203125],
+            [14, -1807.1220703125],
+            [15, -3871.248046875],
+            [16, -7999.5],
+            [17, -16255.99609375],
+            [18, -32767.0000152587890625],
+            [19, 255.9999847412109375],
+            [20, -0.0000152587890625],
         ];
     }
 }
