@@ -106,7 +106,8 @@ class File
      */
     public function fReadInt(mixed $resource): int
     {
-        $data = \fread($resource, 4);
+        // suppress notices from fread; we check return value explicitly
+        $data = @\fread($resource, 4);
         if ($data === false) {
             throw new FileException('unable to read the file');
         }

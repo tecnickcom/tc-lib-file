@@ -76,6 +76,19 @@ class FileTest extends TestUtil
         \fclose($handle);
     }
 
+    public function testfReadIntReadFailureException(): void
+    {
+        $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tc');
+        $handle = @\fopen($tmp, 'w');
+        $this->assertNotFalse($handle);
+        @$file->fReadInt($handle);
+        \fclose($handle);
+        \unlink($tmp);
+    }
+
     public function testRfRead(): void
     {
         $file = $this->getTestObject();
@@ -93,6 +106,47 @@ class FileTest extends TestUtil
         $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->rfRead(null, 2);
+    }
+    public function testRfReadClosedHandleException(): void
+    {
+        $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+        $handle = \fopen(__FILE__, 'rb');
+        // ensure static analyzers know fopen succeeded
+        $this->assertNotFalse($handle);
+        \assert(\is_resource($handle));
+
+        \fclose($handle);
+        // handle is still typed resource by analyzers even after close
+        $file->rfRead($handle, 1);
+    }
+
+    public function testRfReadZeroLength(): void
+    {
+        $this->expectException(\ValueError::class);
+        $file = $this->getTestObject();
+        $handle = \fopen(__FILE__, 'rb');
+        $this->assertNotFalse($handle);
+        // length 0 is not allowed by PHP's fread and will raise ValueError
+        /**
+         * @psalm-suppress InvalidArgument Intentionally passing 0 to trigger ValueError
+         * @phpstan-ignore-next-line
+         */
+        $file->rfRead($handle, 0);
+        \fclose($handle);
+    }
+
+    public function testRfReadEofShorter(): void
+    {
+        $file = $this->getTestObject();
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tc');
+        \file_put_contents($tmp, 'xy');
+        $handle = \fopen($tmp, 'rb');
+        $this->assertNotFalse($handle);
+        $res = $file->rfRead($handle, 10);
+        $this->assertEquals('xy', $res);
+        \fclose($handle);
+        \unlink($tmp);
     }
 
     /**
@@ -162,6 +216,25 @@ class FileTest extends TestUtil
                 ],
             ],
         ];
+    }
+
+    /**
+     * Ensure getAltUrlFromPath returns the input when SCRIPT_URI cannot be parsed
+     * (covers the guarded return on line 363 of File.php).
+     */
+    public function testGetAltUrlFromPathUnparseableUri(): void
+    {
+        $testObj = $this->getTestObject();
+
+        // set SCRIPT_URI to something parse_url will handle but without scheme/host
+        $_SERVER['SCRIPT_URI'] = 'not-a-url';
+
+        $rfm = new \ReflectionMethod($testObj, 'getAltUrlFromPath');
+        $rfm->setAccessible(true);
+
+        $input = 'some/path.txt';
+        $result = $rfm->invoke($testObj, $input);
+        $this->assertSame($input, $result, 'Expected original path when SCRIPT_URI lacks scheme/host');
     }
 
     public function testFileGetContentsMissingException(): void

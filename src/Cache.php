@@ -133,11 +133,7 @@ class Cache
 
         $path .= '*';
         $files = \glob($path);
-        if ($files === []) {
-            return;
-        }
-
-        if ($files === false) {
+        if (($files === []) || ($files === false)) {
             return;
         }
 
