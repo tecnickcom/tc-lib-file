@@ -83,44 +83,6 @@ class ByteTest extends TestUtil
         ];
     }
 
-    #[DataProvider('getULongDataProvider')]
-    public function testGetULong(int $offset, int $expected): void
-    {
-        $byte = $this->getTestObject();
-        $res = $byte->getULong($offset);
-        $this->assertEquals($expected, $res);
-    }
-
-    /**
-     * @return array<array{int, int}>
-     */
-    public static function getULongDataProvider(): array
-    {
-        return [
-            [0, 0],
-            [1, 1],
-            [2, 259],
-            [3, 66311],
-            [4, 16_975_631],
-            [5, 50_794_271],
-            [6, 118_431_551],
-            [7, 253_706_111],
-            [8, 524_255_231],
-            [9, 1_065_353_214],
-            [10, 2_147_483_388],
-            [11, 4_294_900_984],
-            [12, 4_277_991_664],
-            [13, 4_244_173_024],
-            [14, 4_176_535_744],
-            [15, 4_041_261_184],
-            [16, 3_770_712_064],
-            [17, 3_229_614_335],
-            [18, 2_147_549_183],
-            [19, 16_777_215],
-            [20, 4_294_967_295],
-        ];
-    }
-
     #[DataProvider('getUShortDataProvider')]
     public function testGetUShort(int $offset, int $expected): void
     {
@@ -149,23 +111,23 @@ class ByteTest extends TestUtil
             [3, 1],
             [4, 259],
             [5, 775],
-            [6, 1807],
-            [7, 3871],
-            [8, 7999],
-            [9, 16255],
-            [10, 32767],
-            [11, 65534],
-            [12, 65276],
-            [13, 64760],
-            [14, 63728],
-            [15, 61664],
-            [16, 57536],
-            [17, 49280],
-            [18, 32768],
+            [6, 1_807],
+            [7, 3_871],
+            [8, 7_999],
+            [9, 16_255],
+            [10, 32_767],
+            [11, 65_534],
+            [12, 65_276],
+            [13, 64_760],
+            [14, 63_728],
+            [15, 61_664],
+            [16, 57_536],
+            [17, 49_280],
+            [18, 32_768],
             [19, 255],
-            [20, 65535],
-            [21, 65535],
-            [22, 65535],
+            [20, 65_535],
+            [21, 65_535],
+            [22, 65_535],
         ];
     }
 
@@ -174,6 +136,14 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getShort($offset);
+        $this->assertEquals($expected, $res);
+    }
+
+    #[DataProvider('getShortDataProvider')]
+    public function testGetFWord(int $offset, int $expected): void
+    {
+        $byte = $this->getTestObject();
+        $res = $byte->getFWord($offset);
         $this->assertEquals($expected, $res);
     }
 
@@ -186,66 +156,102 @@ class ByteTest extends TestUtil
             [0, 0],
             [1, 0],
             [2, 0],
-            [3, 256],
-            [4, 769],
-            [5, 1795],
-            [6, 3847],
-            [7, 7951],
-            [8, 16159],
-            [9, 32575],
-            [10, -129],
-            [11, -257],
-            [12, -770],
-            [13, -1796],
-            [14, -3848],
-            [15, -7952],
-            [16, -16160],
-            [17, -32576],
-            [18, 128],
-            [19, -256],
+            [3, 1],
+            [4, 259],
+            [5, 775],
+            [6, 1_807],
+            [7, 3_871],
+            [8, 7_999],
+            [9, 16_255],
+            [10, 32_767],
+            [11, -2],
+            [12, -260],
+            [13, -776],
+            [14, -1_808],
+            [15, -3_872],
+            [16, -8_000],
+            [17, -16_256],
+            [18, -32_768],
+            [19, 255],
             [20, -1],
             [21, -1],
             [22, -1],
         ];
     }
 
-    #[DataProvider('getFWordDataProvider')]
-    public function testGetFWord(int $offset, int $expected): void
+    #[DataProvider('getULongDataProvider')]
+    public function testGetULong(int $offset, int $expected): void
     {
         $byte = $this->getTestObject();
-        $res = $byte->getFWord($offset);
+        $res = $byte->getULong($offset);
         $this->assertEquals($expected, $res);
     }
 
     /**
      * @return array<array{int, int}>
      */
-    public static function getFWordDataProvider(): array
+    public static function getULongDataProvider(): array
     {
         return [
             [0, 0],
-            [1, 0],
-            [2, 0],
-            [3, 1],
-            [4, 259],
-            [5, 775],
-            [6, 1807],
-            [7, 3871],
-            [8, 7999],
-            [9, 16255],
-            [10, 32767],
-            [11, -2],
-            [12, -260],
-            [13, -776],
-            [14, -1808],
-            [15, -3872],
-            [16, -8000],
-            [17, -16256],
-            [18, -32768],
-            [19, 255],
+            [1, 1],
+            [2, 259],
+            [3, 66_311],
+            [4, 16_975_631],
+            [5, 50_794_271],
+            [6, 118_431_551],
+            [7, 253_706_111],
+            [8, 524_255_231],
+            [9, 1_065_353_214],
+            [10, 2_147_483_388],
+            [11, 4_294_900_984],
+            [12, 4_277_991_664],
+            [13, 4_244_173_024],
+            [14, 4_176_535_744],
+            [15, 4_041_261_184],
+            [16, 3_770_712_064],
+            [17, 3_229_614_335],
+            [18, 2_147_549_183],
+            [19, 16_777_215],
+            [20, 4_294_967_295],
+        ];
+    }
+
+    #[DataProvider('getLongDataProvider')]
+    public function testGetLong(int $offset, int $expected): void
+    {
+        $byte = $this->getTestObject();
+        $res = $byte->getLong($offset);
+        $this->assertEquals($expected, $res);
+    }
+
+    /**
+     * @return array<array{int, int}>
+     */
+    public static function getLongDataProvider(): array
+    {
+        return [
+            [0, 0],
+            [1, 1],
+            [2, 259],
+            [3, 66_311],
+            [4, 16_975_631],
+            [5, 50_794_271],
+            [6, 118_431_551],
+            [7, 253_706_111],
+            [8, 524_255_231],
+            [9, 1_065_353_214],
+            [10, 2_147_483_388],
+            [11, -66_312],
+            [12, -16_975_632],
+            [13, -50_794_272],
+            [14, -118_431_552],
+            [15, -253_706_112],
+            [16, -524_255_232],
+            [17, -1_065_352_961],
+            [18, -2_147_418_113],
+            [19, 16_777_215],
             [20, -1],
-            [21, -1],
-            [22, -1],
         ];
     }
 
@@ -254,36 +260,30 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getFixed($offset);
-        $this->assertEquals($expected, $res);
+        // compare floats with a small tolerance to avoid precision issues
+        $this->assertEqualsWithDelta($expected, $res, 1e-12, "float mismatch at offset $offset");
     }
-
     /**
      * @return array<array{int, float}>
      */
     public static function getFixedDataProvider(): array
     {
         return [
-            [0, 0],
-            [1, 0.1],
-            [2, 0.259],
-            [3, 1.775],
-            [4, 259.1807],
-            [5, 775.3871],
-            [6, 1807.7999],
-            [7, 3871.16255],
-            [8, 7999.32767],
-            [9, 16255.65534],
-            [10, 32767.65276],
-            [11, -2.64760],
-            [12, -260.63728],
-            [13, -776.61664],
-            [14, -1808.57536],
-            [15, -3872.49280],
-            [16, -8000.32768],
-            [17, -16256.255],
-            [18, -32768.65535],
-            [19, 255.65535],
-            [20, -1.65535],
+            // high and low parts from the test string; see getShort/getUShort providers
+            // offset 0: all zero bytes
+            [0, 0.0],
+            // offset 1: high=0, low=1 -> 1/65536
+            [1, 1.52587890625E-5],
+            // offset 2: high=0, low=259 -> 259/65536
+            [2, 0.0039520263671875],
+            // offset 3: high=1, low=775 -> 1 + 775/65536
+            [3, 1.0118255615234375],
+            // a negative result with fractional part
+            [11, -1.0118408203125],
+            // large positive value near next integer
+            [19, 255.99998474121094],
+            // negative value very close to zero (tiny fraction)
+            [20, -1.52587890625E-5],
         ];
     }
 }

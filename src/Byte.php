@@ -54,20 +54,7 @@ class Byte
     public function getByte(int $offset): int
     {
         $val = \unpack('Ci', \substr($this->str, $offset, 1));
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
-    }
-
-    /**
-     * Get ULONG from string (Big Endian 32-bit unsigned integer).
-     *
-     * @param int $offset Point from where to read the data
-     *
-     * @return int 32 bit value
-     */
-    public function getULong(int $offset): int
-    {
-        $val = \unpack('Ni', \substr($this->str, $offset, 4));
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
+        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFF) : 0);
     }
 
     /**
@@ -80,7 +67,7 @@ class Byte
     public function getUShort(int $offset): int
     {
         $val = \unpack('ni', \substr($this->str, $offset, 2));
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
+        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFF) : 0);
     }
 
     /**
@@ -92,12 +79,15 @@ class Byte
      */
     public function getShort(int $offset): int
     {
-        $val = \unpack('si', \substr($this->str, $offset, 2));
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
+        $val = $this->getUShort($offset);
+        // convert to signed 16-bit (two's complement)
+        return ($val ^ 0x8000) - 0x8000;
+        ;
     }
 
     /**
      * Get UFWORD from string (Big Endian 16-bit unsigned integer).
+     * Alias for getUShort().
      *
      * @param int $offset Point from where to read the data.
      *
@@ -110,6 +100,7 @@ class Byte
 
     /**
      * Get FWORD from string (Big Endian 16-bit signed integer).
+     * Alias for getShort().
      *
      * @param int $offset Point from where to read the data.
      *
@@ -117,12 +108,34 @@ class Byte
      */
     public function getFWord(int $offset): int
     {
-        $val = $this->getUShort($offset);
-        if ($val > 0x7fff) {
-            $val -= 0x10000;
-        }
+        return $this->getShort($offset);
+    }
 
-        return $val;
+    /**
+     * Get ULONG from string (Big Endian 32-bit unsigned integer).
+     *
+     * @param int $offset Point from where to read the data
+     *
+     * @return int 32 bit value
+     */
+    public function getULong(int $offset): int
+    {
+        $val = \unpack('Ni', \substr($this->str, $offset, 4));
+        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFFFFFF) : 0);
+    }
+
+    /**
+     * Get LONG from string (Big Endian 32-bit signed integer).
+     *
+     * @param int $offset Point from where to read the data
+     *
+     * @return int 32 bit value
+     */
+    public function getLong(int $offset): int
+    {
+        $val = $this->getULong($offset);
+        // convert to signed 32-bit (two's complement)
+        return ($val ^ 0x80000000) - 0x80000000;
     }
 
     /**
@@ -132,7 +145,6 @@ class Byte
      */
     public function getFixed(int $offset): float
     {
-        // mantissa.fraction
-        return (float) ($this->getFWord($offset) . '.' . $this->getUShort($offset + 2));
+        return (float) $this->getShort($offset) + ((float) $this->getUShort($offset + 2) / (float) 0x10000);
     }
 }
