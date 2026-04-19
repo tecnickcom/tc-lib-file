@@ -18,6 +18,54 @@ namespace Test;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 
+class RecursiveReadFile extends \Com\Tecnick\File\File
+{
+    protected function hasUnreadBytes(mixed $resource): bool
+    {
+        return \is_resource($resource) && ! \feof($resource);
+    }
+}
+
+class RecursiveReadStreamWrapper
+{
+    public mixed $context;
+
+    private string $data = 'abcde';
+
+    private int $position = 0;
+
+    private int $reads = 0;
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$opened_path): bool
+    {
+        unset($path, $mode, $options, $opened_path);
+        return true;
+    }
+
+    public function stream_read(int $count): string
+    {
+        ++$this->reads;
+        $length = ($this->reads === 1) ? \min(2, $count) : $count;
+        $chunk = \substr($this->data, $this->position, $length);
+        $this->position += \strlen($chunk);
+
+        return $chunk;
+    }
+
+    public function stream_eof(): bool
+    {
+        return $this->position >= \strlen($this->data);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function stream_stat(): array
+    {
+        return [];
+    }
+}
+
 /**
  * File Color class test
  *
@@ -147,6 +195,43 @@ class FileTest extends TestUtil
         $this->assertEquals('xy', $res);
         \fclose($handle);
         \unlink($tmp);
+    }
+
+    public function testRfReadRecursiveBufferedStream(): void
+    {
+        if (! \in_array('tcreadpartial', \stream_get_wrappers(), true)) {
+            \stream_wrapper_register('tcreadpartial', RecursiveReadStreamWrapper::class);
+        }
+
+        $file = new RecursiveReadFile();
+        $handle = \fopen('tcreadpartial://buffered', 'rb');
+        $this->assertNotFalse($handle);
+
+        try {
+            $res = $file->rfRead($handle, 5);
+            $this->assertSame('abcde', $res);
+        } finally {
+            \fclose($handle);
+            \stream_wrapper_unregister('tcreadpartial');
+        }
+    }
+
+    public function testHasUnreadBytes(): void
+    {
+        $file = $this->getTestObject();
+        $handle = \fopen(\dirname(__DIR__) . '/src/File.php', 'rb');
+        $this->assertNotFalse($handle);
+
+        try {
+            $this->assertSame('<?', \fread($handle, 2));
+
+            $rfm = new \ReflectionMethod($file, 'hasUnreadBytes');
+            $rfm->setAccessible(true);
+
+            $this->assertTrue($rfm->invoke($file, $handle));
+        } finally {
+            \fclose($handle);
+        }
     }
 
     /**

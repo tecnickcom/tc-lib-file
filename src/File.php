@@ -140,13 +140,23 @@ class File
 
         $rest = ($length - \strlen($data));
         if (($rest > 0) && ! \feof($resource)) {
-            $stream_meta_data = \stream_get_meta_data($resource);
-            if ($stream_meta_data['unread_bytes'] > 0) {
+            if ($this->hasUnreadBytes($resource)) {
                 $data .= $this->rfRead($resource, $rest);
             }
         }
 
         return $data;
+    }
+
+    /**
+     * Check whether the stream still has buffered unread bytes.
+     *
+     * @param resource $resource A file system pointer resource.
+     */
+    protected function hasUnreadBytes(mixed $resource): bool
+    {
+        $stream_meta_data = \stream_get_meta_data($resource);
+        return $stream_meta_data['unread_bytes'] > 0;
     }
 
     /**
