@@ -18,6 +18,8 @@ If this library helps your parsing pipeline, please consider [supporting develop
 
 `tc-lib-file` provides safe primitives for opening files, reading bytes, and handling binary-oriented workflows used by higher-level PDF and document libraries.
 
+The package is intentionally small but critical: it centralizes low-level I/O concerns so higher-level libraries can focus on document semantics instead of stream safety and byte handling. This separation improves reliability, testability, and reuse across the broader Tecnick ecosystem.
+
 | | |
 |---|---|
 | **Namespace** | `\Com\Tecnick\File` |
