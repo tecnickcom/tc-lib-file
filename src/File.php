@@ -66,7 +66,7 @@ class File
      *
      * @var array<int, bool|int|string> cURL options.
      */
-    public array $curlopts = [];
+    protected array $curlopts = [];
 
     /**
      * Default cURL options (instance-level, initialized from CURLOPT_DEFAULT constant).
@@ -93,7 +93,7 @@ class File
      *
      * @var array<string>
      */
-    public array $allowedHosts = [];
+    protected array $allowedHosts = [];
 
     /**
      * Maximum size (in bytes) for remote file reads via HTTP(S) or FTP.
@@ -102,22 +102,74 @@ class File
      *
      * @var int
      */
-    public int $maxRemoteSize = 52428800;
+    protected int $maxRemoteSize = 52428800;
 
     /**
-     * Initialize the File object with optional custom cURL options.
+     * Initialize the File object.
      *
-     * @param array<int, bool|int|string>|null $defaultCurlOpts Optional custom default cURL options.
+     * @param array<string>                    $allowedHosts    Allowlist of trusted hostnames.
+     *                                                             Defaults to an empty array (no host trusted).
+     * @param int                              $maxRemoteSize   Maximum size in bytes for remote file reads.
+     *                                                             Defaults to 52428800 (50 MB).
+     * @param array<int, bool|int|string>      $curlopts        Custom cURL options to merge over defaults.
+     * @param array<int, bool|int|string>|null $defaultCurlOpts Optional override for default cURL options.
      *                                                             If not provided, CURLOPT_DEFAULT is used.
-     * @param array<int, bool|int|string>|null $fixedCurlOpts   Optional custom fixed cURL options.
+     * @param array<int, bool|int|string>|null $fixedCurlOpts   Optional override for fixed cURL options.
      *                                                             If not provided, CURLOPT_FIXED is used.
      */
     public function __construct(
+        array $allowedHosts = [],
+        int $maxRemoteSize = 52428800,
+        array $curlopts = [],
         ?array $defaultCurlOpts = null,
         ?array $fixedCurlOpts = null
     ) {
+        $this->allowedHosts = $allowedHosts;
+        $this->maxRemoteSize = $maxRemoteSize;
+        $this->curlopts = $curlopts;
         $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
         $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
+    }
+
+    /**
+     * Set custom cURL options.
+     *
+     * @param array<int, bool|int|string> $curlopts Custom cURL options to merge over defaults.
+     */
+    public function setCurlOpts(array $curlopts): static
+    {
+        $this->curlopts = $curlopts;
+        return $this;
+    }
+
+    /**
+     * Set the allowlist of trusted hostnames.
+     *
+     * @param array<string> $allowedHosts Trusted hostname strings.
+     */
+    public function setAllowedHosts(array $allowedHosts): static
+    {
+        $this->allowedHosts = $allowedHosts;
+        return $this;
+    }
+
+    /**
+     * Set the maximum size (in bytes) for remote file reads.
+     *
+     * @param int $maxRemoteSize Maximum allowed bytes.
+     */
+    public function setMaxRemoteSize(int $maxRemoteSize): static
+    {
+        $this->maxRemoteSize = $maxRemoteSize;
+        return $this;
+    }
+
+    /**
+     * Get the maximum size (in bytes) for remote file reads.
+     */
+    public function getMaxRemoteSize(): int
+    {
+        return $this->maxRemoteSize;
     }
 
     /**

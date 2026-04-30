@@ -291,8 +291,7 @@ class FileTest extends TestUtil
     #[DataProvider('getAltFilePathsDataProvider')]
     public function testGetAltFilePaths(string $file, array $expected): void
     {
-        $testObj = $this->getTestObject();
-        $testObj->allowedHosts = ['localhost'];
+        $testObj = new \Com\Tecnick\File\File(['localhost']);
         $_SERVER['DOCUMENT_ROOT'] = '/var/www';
         $_SERVER['HTTP_HOST'] = 'localhost';
         $_SERVER['HTTPS'] = 'on';
@@ -389,8 +388,7 @@ class FileTest extends TestUtil
 
     public function testGetAltUrlFromPathAllowlistedScriptUriAccepted(): void
     {
-        $testObj = $this->getTestObject();
-        $testObj->allowedHosts = ['myapp.example.com'];
+        $testObj = new \Com\Tecnick\File\File(['myapp.example.com']);
         $_SERVER['SCRIPT_URI'] = 'https://myapp.example.com/app/script.php';
 
         $rfm = new \ReflectionMethod($testObj, 'getAltUrlFromPath');
@@ -438,14 +436,14 @@ class FileTest extends TestUtil
     public function testMaxRemoteSizeDefault(): void
     {
         $file = $this->getTestObject();
-        $this->assertSame(52428800, $file->maxRemoteSize);
+        $this->assertSame(52428800, $file->getMaxRemoteSize());
     }
 
     public function testMaxRemoteSizeConfigurable(): void
     {
         $file = $this->getTestObject();
-        $file->maxRemoteSize = 1048576; // 1MB
-        $this->assertSame(1048576, $file->maxRemoteSize);
+        $file->setMaxRemoteSize(1048576); // 1MB
+        $this->assertSame(1048576, $file->getMaxRemoteSize());
     }
 
     public function testHasDoubleDots(): void
@@ -508,10 +506,10 @@ class FileTest extends TestUtil
     {
         $testObj = $this->getTestObject();
         // Set custom curl options that try to disable SSL verification
-        $testObj->curlopts = [
+        $testObj->setCurlOpts([
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
-        ];
+        ]);
 
         // Get the fixed options to verify they are unaffected
         $refProperty = new \ReflectionProperty($testObj, 'fixedCurlOpts');
@@ -551,8 +549,7 @@ class FileTest extends TestUtil
 
     public function testAllowlistedHttpHostIsAccepted(): void
     {
-        $testObj = $this->getTestObject();
-        $testObj->allowedHosts = ['myapp.example.com'];
+        $testObj = new \Com\Tecnick\File\File(['myapp.example.com']);
         $_SERVER['HTTP_HOST'] = 'myapp.example.com';
         $_SERVER['HTTPS'] = 'on';
 
@@ -648,7 +645,7 @@ class FileTest extends TestUtil
     public function testProgressCallbackReturnsZeroBelowLimit(): void
     {
         $file = $this->getTestObject();
-        $file->maxRemoteSize = 100;
+        $file->setMaxRemoteSize(100);
 
         $rfm = new \ReflectionMethod($file, 'createProgressCallback');
         $rfm->setAccessible(true);
@@ -666,7 +663,7 @@ class FileTest extends TestUtil
     public function testProgressCallbackReturnsAbortSignalAboveLimit(): void
     {
         $file = $this->getTestObject();
-        $file->maxRemoteSize = 100;
+        $file->setMaxRemoteSize(100);
 
         $rfm = new \ReflectionMethod($file, 'createProgressCallback');
         $rfm->setAccessible(true);
@@ -694,7 +691,7 @@ class FileTest extends TestUtil
         $file = $this->getTestObject();
         // Set a very small limit so the 1 000-byte response from large.php
         // triggers CURLE_ABORTED_BY_CALLBACK (errno 42).
-        $file->maxRemoteSize = 10;
+        $file->setMaxRemoteSize(10);
 
         $this->bcExpectException('\\' . \Com\Tecnick\File\Exception::class);
         $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/large.php');
@@ -709,7 +706,7 @@ class FileTest extends TestUtil
         // Create a File instance with no fixed cURL options so that
         // CURLOPT_RETURNTRANSFER is not set.  curl_exec() then returns true
         // on success, exercising the `$ret === true ? '' : $ret` branch.
-        $file = new \Com\Tecnick\File\File([], []);
+        $file = new \Com\Tecnick\File\File([], 52428800, [], [], []);
 
         \ob_start();
         $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/empty.php');
