@@ -43,9 +43,8 @@ class File
     protected const CURLOPT_DEFAULT = [
         CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_MAXREDIRS => 5,
-        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP | CURLPROTO_FTP | CURLPROTO_FTPS,
-        CURLOPT_SSL_VERIFYHOST => 2,
-        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP,
+        CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_USERAGENT => 'tc-lib-file',
     ];
@@ -58,6 +57,8 @@ class File
     protected const CURLOPT_FIXED = [
         CURLOPT_FAILONERROR => true,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_SSL_VERIFYPEER => true,
     ];
 
     /**
@@ -66,6 +67,58 @@ class File
      * @var array<int, bool|int|string> cURL options.
      */
     public array $curlopts = [];
+
+    /**
+     * Default cURL options (instance-level, initialized from CURLOPT_DEFAULT constant).
+     * Can be customized via constructor parameter.
+     *
+     * @var array<int, bool|int|string> cURL options.
+     */
+    protected array $defaultCurlOpts;
+
+    /**
+     * Fixed cURL options that are always applied (instance-level, initialized from CURLOPT_FIXED constant).
+     * Can be customized via constructor parameter.
+     * These are applied last to ensure security-critical settings cannot be overridden.
+     *
+     * @var array<int, bool|int|string> cURL options.
+     */
+    protected array $fixedCurlOpts;
+
+    /**
+     * Allowlist of trusted HTTP_HOST values for use in alt-path helpers.
+     * An empty array (the default) means no host is trusted, so HTTP_HOST-based
+     * URL construction is skipped entirely.  Set to a non-empty list of exact
+     * hostname strings to enable the feature for specific hosts.
+     *
+     * @var array<string>
+     */
+    public array $allowedHosts = [];
+
+    /**
+     * Maximum size (in bytes) for remote file reads via HTTP(S) or FTP.
+     * Reads exceeding this limit will throw an exception.
+     * Default is 52428800 bytes (50 MB).
+     *
+     * @var int
+     */
+    public int $maxRemoteSize = 52428800;
+
+    /**
+     * Initialize the File object with optional custom cURL options.
+     *
+     * @param array<int, bool|int|string>|null $defaultCurlOpts Optional custom default cURL options.
+     *                                                             If not provided, CURLOPT_DEFAULT is used.
+     * @param array<int, bool|int|string>|null $fixedCurlOpts   Optional custom fixed cURL options.
+     *                                                             If not provided, CURLOPT_FIXED is used.
+     */
+    public function __construct(
+        ?array $defaultCurlOpts = null,
+        ?array $fixedCurlOpts = null
+    ) {
+        $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
+        $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
+    }
 
     /**
      * Wrapper to use fopen only with local files
@@ -129,20 +182,23 @@ class File
      */
     public function rfRead(mixed $resource, int $length): string
     {
-        $data = false;
-        if (\is_resource($resource)) {
-            $data = @\fread($resource, $length);
-        }
-
-        if (($data === false) || ($resource === null)) {
+        if (! \is_resource($resource)) {
             throw new FileException('unable to read the file');
         }
 
-        $rest = ($length - \strlen($data));
-        if (($rest > 0) && ! \feof($resource)) {
-            if ($this->hasUnreadBytes($resource)) {
-                $data .= $this->rfRead($resource, $rest);
+        $data = '';
+        while (\strlen($data) < $length && ! \feof($resource)) {
+            $remaining = \max(1, $length - \strlen($data));
+            $chunk = @\fread($resource, $remaining);
+            if ($chunk === false || $chunk === '') {
+                break;
             }
+
+            $data .= $chunk;
+        }
+
+        if ($data === '') {
+            throw new FileException('unable to read the file');
         }
 
         return $data;
@@ -202,6 +258,39 @@ class File
     }
 
     /**
+     * Progress callback factory for curl to enforce max remote file size.
+     * Returns a callable that enforces the size limit during transfer.
+     *
+     * @param int $bytesRead Reference to track bytes downloaded
+     *
+     * @return callable Progress callback for CURLOPT_PROGRESSFUNCTION
+     *
+     * @SuppressWarnings("PHPMD.UnusedFormalParameter")
+     */
+    private function createProgressCallback(int &$bytesRead): callable
+    {
+        $maxSize = $this->maxRemoteSize;
+        return static function (
+            $curlResource,
+            $downloadSize,
+            $downloaded,
+            $uploadSize,
+            $uploaded
+        ) use (
+            &$bytesRead,
+            $maxSize
+        ) {
+            // @phpstan-ignore-next-line
+            $bytesRead = (int) $downloaded;
+            if ($bytesRead > $maxSize) {
+                // Returning non-zero aborts the transfer
+                return 1;
+            }
+            return 0;
+        };
+    }
+
+    /**
      * Reads entire remote file into a string using CURL
      *
      * @param string $url URL to read.
@@ -213,8 +302,8 @@ class File
         if (
             (\ini_get('allow_url_fopen') && ! \defined('FORCE_CURL'))
             || (! \function_exists('curl_init'))
-            || \preg_match('%^(https?|ftp)://%', $url) === 0
-            || \preg_match('%^(https?|ftp)://%', $url) === false
+            || \preg_match('%^https?://%', $url) === 0
+            || \preg_match('%^https?://%', $url) === false
         ) {
             return false;
         }
@@ -228,15 +317,38 @@ class File
             $curlopts[CURLOPT_FOLLOWLOCATION] = true;
         }
 
-        $curlopts = \array_replace($curlopts, self::CURLOPT_DEFAULT);
+        $curlopts = \array_replace($curlopts, $this->defaultCurlOpts);
         $curlopts = \array_replace($curlopts, $this->curlopts);
-        $curlopts = \array_replace($curlopts, self::CURLOPT_FIXED);
+        $curlopts = \array_replace($curlopts, $this->fixedCurlOpts);
         $curlopts[CURLOPT_URL] = $url;
+
+        // Use a progress callback to enforce the max remote size limit
+        $bytesRead = 0;
+        $curlopts[CURLOPT_NOPROGRESS] = false;
+        $curlopts[CURLOPT_PROGRESSFUNCTION] = $this->createProgressCallback($bytesRead);
 
         \curl_setopt_array($curlHandle, $curlopts);
 
-        $ret = \curl_exec($curlHandle);
-        return $ret === true ? '' : $ret;
+        try {
+            $ret = \curl_exec($curlHandle);
+
+            // Check if transfer was aborted due to size limit
+            $curlError = \curl_errno($curlHandle);
+            if ($curlError === 42) { // CURLE_ABORTED_BY_CALLBACK
+                throw new FileException(
+                    'remote file exceeds maximum allowed size of ' . $this->maxRemoteSize . ' bytes'
+                );
+            }
+
+            if ($ret === false) {
+                return false;
+            }
+
+            return $ret === true ? '' : $ret;
+        } finally {
+            // phpcs:ignore PHPCompatibility.FunctionUse.RemovedFunctions.curl_closeDeprecated
+            @\curl_close($curlHandle);
+        }
     }
 
     /**
@@ -290,7 +402,12 @@ class File
      */
     protected function getAltMissingUrlProtocol(string $file): string
     {
-        if (\preg_match('%^//%', $file) && ! empty($_SERVER['HTTP_HOST'])) {
+        if (
+            \preg_match('%^//%', $file)
+            && ! empty($_SERVER['HTTP_HOST'])
+            && \is_string($_SERVER['HTTP_HOST'])
+            && $this->validateHost($_SERVER['HTTP_HOST'])
+        ) {
             $file = $this->getDefaultUrlProtocol() . ':' . \str_replace(' ', '%20', $file);
         }
 
@@ -329,9 +446,10 @@ class File
             \preg_match('%^(https?)://%', $url) === 0
             || \preg_match('%^(https?)://%', $url) === false
             || empty($_SERVER['HTTP_HOST'])
-            || !\is_string($_SERVER['HTTP_HOST'])
+            || ! \is_string($_SERVER['HTTP_HOST'])
+            || ! $this->validateHost($_SERVER['HTTP_HOST'])
             || empty($_SERVER['DOCUMENT_ROOT'])
-            || !\is_string($_SERVER['DOCUMENT_ROOT'])
+            || ! \is_string($_SERVER['DOCUMENT_ROOT'])
         ) {
             return $url;
         }
@@ -373,10 +491,28 @@ class File
                 return $file;
             }
 
+            // Validate SCRIPT_URI host against allowlist to prevent SSRF attacks.
+            // If the host is not trusted, return the original file path unchanged.
+            if (! $this->validateHost($urldata['host'])) {
+                return $file;
+            }
+
             return $urldata['scheme'] . '://' . $urldata['host'] . (($file[0] == '/') ? '' : '/') . $file;
         }
 
         return $file;
+    }
+
+    /**
+     * Validate that the given hostname appears in the $allowedHosts allowlist.
+     * Returns true when the hostname is trusted, false otherwise.
+     * When the allowlist is empty (the default) every host is rejected.
+     *
+     * @param string $host Hostname to validate (e.g. value of $_SERVER['HTTP_HOST']).
+     */
+    protected function validateHost(string $host): bool
+    {
+        return \in_array($host, $this->allowedHosts, true);
     }
 
     /**
@@ -393,7 +529,8 @@ class File
 
     /**
      * Check if the path contains a non-allowed protocol.
-     * If a protocol is present ('://'), then only 'file://' and 'https://' are allowed.
+     * If a protocol is present ('://'), then only 'file://', 'http://', and 'https://' are allowed.
+     * FTP protocols are no longer supported.
      *
      * @param string $path path to check.
      *
@@ -401,6 +538,6 @@ class File
      */
     public static function hasForbiddenProtocol($path)
     {
-        return ((\strpos($path, '://') !== false) && (\preg_match('%^(file|ftp|https?)://%', $path) !== 1));
+        return ((\strpos($path, '://') !== false) && (\preg_match('%^(file|https?)://%', $path) !== 1));
     }
 }

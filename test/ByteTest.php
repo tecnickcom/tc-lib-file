@@ -286,4 +286,52 @@ class ByteTest extends TestUtil
             [20, -1.52587890625E-5],
         ];
     }
+
+    // -------------------------------------------------------------------------
+    // Issue 7: out-of-bounds reads — always throw exceptions
+    // -------------------------------------------------------------------------
+
+    public function testGetByteOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('AB'); // 2 bytes
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches('/Out-of-bounds read/');
+        $byte->getByte(10);
+    }
+
+    public function testGetUShortOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('A'); // 1 byte only
+        $this->expectException(\RangeException::class);
+        $byte->getUShort(0);
+    }
+
+    public function testGetULongOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('ABC'); // 3 bytes
+        $this->expectException(\RangeException::class);
+        $byte->getULong(0);
+    }
+
+    public function testGetShortOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('A');
+        $this->expectException(\RangeException::class);
+        $byte->getShort(0);
+    }
+
+    public function testGetFixedOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('AB'); // needs 4 bytes
+        $this->expectException(\RangeException::class);
+        $byte->getFixed(0);
+    }
+
+    public function testInBoundsReadNoWarning(): void
+    {
+        // A read exactly at the boundary must not warn.
+        $byte = new \Com\Tecnick\File\Byte("\x00\x01");
+        $this->assertSame(0, $byte->getByte(0));
+        $this->assertSame(1, $byte->getByte(1));
+    }
 }

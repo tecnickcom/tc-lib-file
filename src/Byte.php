@@ -35,6 +35,8 @@ class Byte
      * Initialize a new string to be processed
      *
      * @param string $str String from where to extract values
+     *
+     * @throws \RangeException on any out-of-bounds read attempt.
      */
     public function __construct(
         /**
@@ -42,6 +44,24 @@ class Byte
          */
         protected string $str
     ) {
+    }
+
+    /**
+     * Verify that an offset + length read is within the string bounds.
+     *
+     * @param int $offset Read start position.
+     * @param int $length Number of bytes to read.
+     *
+     * @throws \RangeException if the read exceeds the string length.
+     */
+    private function checkBounds(int $offset, int $length): void
+    {
+        if ($offset + $length > \strlen($this->str)) {
+            throw new \RangeException(
+                'Out-of-bounds read at offset ' . $offset
+                . ' (length ' . $length . ', string length ' . \strlen($this->str) . ')'
+            );
+        }
     }
 
     /**
@@ -53,6 +73,7 @@ class Byte
      */
     public function getByte(int $offset): int
     {
+        $this->checkBounds($offset, 1);
         $val = \unpack('Ci', \substr($this->str, $offset, 1));
         return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFF) : 0);
     }
@@ -66,6 +87,7 @@ class Byte
      */
     public function getUShort(int $offset): int
     {
+        $this->checkBounds($offset, 2);
         $val = \unpack('ni', \substr($this->str, $offset, 2));
         return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFF) : 0);
     }
@@ -120,6 +142,7 @@ class Byte
      */
     public function getULong(int $offset): int
     {
+        $this->checkBounds($offset, 4);
         $val = \unpack('Ni', \substr($this->str, $offset, 4));
         return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFFFFFF) : 0);
     }

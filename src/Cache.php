@@ -19,6 +19,9 @@ namespace Com\Tecnick\File;
 /**
  * Com\Tecnick\Pdf\File\Cache
  *
+ * File caching system with per-instance path and prefix.
+ * Each Cache instance maintains its own cache directory path and file prefix.
+ *
  * @since     2011-05-23
  * @category  Library
  * @package   File
@@ -30,16 +33,16 @@ namespace Com\Tecnick\File;
 class Cache
 {
     /**
-     * Cache path
+     * Cache path (per-instance)
      *
      * @var string
      */
-    protected static $path = '';
+    protected string $path = '';
 
     /**
-     * File prefix
+     * File prefix (per-instance)
      */
-    protected static string $prefix;
+    protected string $prefix;
 
     /**
      * Set the file prefix (common name)
@@ -67,7 +70,7 @@ class Cache
             );
         }
 
-        self::$prefix = '_' . \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) . '_';
+        $this->prefix = '_' . \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) . '_';
     }
 
     /**
@@ -75,7 +78,7 @@ class Cache
      */
     public function getCachePath(): string
     {
-        return self::$path;
+        return $this->path;
     }
 
     /**
@@ -87,11 +90,11 @@ class Cache
     {
         if (($path === null) || (\strpos($path, '://') !== false) || ! \is_writable($path)) {
             /* @phpstan-ignore-next-line */
-            self::$path = K_PATH_CACHE;
+            $this->path = K_PATH_CACHE;
             return;
         }
 
-        self::$path = $this->normalizePath($path);
+        $this->path = $this->normalizePath($path);
     }
 
     /**
@@ -99,20 +102,28 @@ class Cache
      */
     public function getFilePrefix(): string
     {
-        return self::$prefix;
+        return $this->prefix;
     }
 
     /**
-     * Returns a temporary filename for caching files
+     * Returns a temporary filename for caching files.
+     * Throws an exception when tempnam() fails, consistent with the rest of the library.
      *
      * @param string $type Type of file
      * @param string $key  File key (used to retrieve file from cache)
      *
-     * @return string|false filename
+     * @return string Temporary filename
+     *
+     * @throws \Com\Tecnick\File\Exception when a temporary file cannot be created.
      */
-    public function getNewFileName(string $type = 'tmp', string $key = '0'): string|bool
+    public function getNewFileName(string $type = 'tmp', string $key = '0'): string
     {
-        return \tempnam(self::$path, self::$prefix . $type . '_' . $key . '_');
+        $file = \tempnam($this->path, $this->prefix . $type . '_' . $key . '_');
+        if ($file === false) {
+            throw new Exception('unable to create a temporary file in: ' . $this->path);
+        }
+
+        return $file;
     }
 
     /**
@@ -123,11 +134,18 @@ class Cache
      */
     public function delete(?string $type = null, ?string $key = null): void
     {
-        $path = self::$path . self::$prefix;
-        if ($type !== null) {
-            $path .= $type . '_';
-            if ($key !== null) {
-                $path .= $key . '_';
+        $safeType = ($type !== null)
+            ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $type)
+            : null;
+        $safeKey = ($key !== null)
+            ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $key)
+            : null;
+
+        $path = $this->path . $this->prefix;
+        if ($safeType !== null) {
+            $path .= $safeType . '_';
+            if ($safeKey !== null) {
+                $path .= $safeKey . '_';
             }
         }
 
@@ -138,6 +156,28 @@ class Cache
         }
 
         \array_map('unlink', $files);
+    }
+
+    /**
+     * Delete cache files older than the given number of seconds.
+     *
+     * @param int $seconds Maximum age in seconds; files whose mtime is older are removed.
+     */
+    public function deleteOlderThan(int $seconds): void
+    {
+        $pattern = $this->path . $this->prefix . '*';
+        $files = \glob($pattern);
+        if (($files === []) || ($files === false)) {
+            return;
+        }
+
+        $cutoff = \time() - $seconds;
+        foreach ($files as $file) {
+            $mtime = \filemtime($file);
+            if ($mtime !== false && $mtime < $cutoff) {
+                \unlink($file);
+            }
+        }
     }
 
     /**
