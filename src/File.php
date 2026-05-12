@@ -198,7 +198,7 @@ class File
             throw new FileException('this is not a local file');
         }
 
-        $handler = \fopen($filename, $mode);
+        $handler = $this->withoutPhpWarnings(static fn() => \fopen($filename, $mode));
         if ($handler === false) {
             throw new FileException('unable to open the file: ' . $filename);
         }
@@ -217,7 +217,7 @@ class File
      */
     public function fReadInt(mixed $resource): int
     {
-        $data = \fread($resource, 4);
+        $data = $this->withoutPhpWarnings(static fn() => \fread($resource, 4));
         if ($data === false) {
             throw new FileException('unable to read the file');
         }
@@ -310,13 +310,36 @@ class File
             return false;
         }
 
-        $ret = \file_get_contents($file);
+        $ret = $this->withoutPhpWarnings(static fn() => \file_get_contents($file));
         if ($ret !== false) {
             return $ret;
         }
 
         // try to use CURL for URLs
         return $this->getUrlData($file);
+    }
+
+    /**
+     * Execute a callable while suppressing expected PHP warnings/notices.
+     *
+     * These low-level filesystem calls already signal failure via their return
+     * values, and the public methods convert that into a FileException.
+     *
+     * @template T
+     *
+     * @param callable():T $callback
+     *
+     * @return T
+     */
+    private function withoutPhpWarnings(callable $callback): mixed
+    {
+        \set_error_handler(static fn(): bool => true, E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE);
+
+        try {
+            return $callback();
+        } finally {
+            \restore_error_handler();
+        }
     }
 
     /**

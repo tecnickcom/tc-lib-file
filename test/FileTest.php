@@ -97,7 +97,9 @@ class FileTest extends TestUtil
         // Wait until the server is accepting connections (up to 5 s).
         $ready = false;
         for ($i = 0; $i < 50; $i++) {
+            \set_error_handler(static fn(): bool => true);
             $conn = \fsockopen('127.0.0.1', self::$serverPort, $errno, $errstr, 0.1);
+            \restore_error_handler();
             if ($conn !== false) {
                 \fclose($conn);
                 $ready = true;
