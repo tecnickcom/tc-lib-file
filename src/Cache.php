@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Cache.php
  *
@@ -47,30 +49,21 @@ class Cache
     /**
      * Set the file prefix (common name)
      *
-     * @param string $prefix Common prefix to be used for all cache files
+     * @param ?string $prefix Common prefix to be used for all cache files
      */
-    public function __construct($prefix = null)
+    public function __construct(?string $prefix = null)
     {
         $this->defineSystemCachePath();
         $this->setCachePath();
         if ($prefix === null) {
             $prefix = \rtrim(
-                \base64_encode(
-                    \pack(
-                        'H*',
-                        \md5(
-                            \uniqid(
-                                (string) \random_int(0, \mt_getrandmax()),
-                                true
-                            ),
-                        ),
-                    ),
-                ),
+                \base64_encode(\pack('H*', \md5(\uniqid((string) \mt_rand(0, \mt_getrandmax()), true)))),
                 '=',
             );
         }
 
-        $this->prefix = '_' . \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) . '_';
+        $safePrefix = \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) ?? '';
+        $this->prefix = '_' . $safePrefix . '_';
     }
 
     /**
@@ -88,9 +81,8 @@ class Cache
      */
     public function setCachePath(?string $path = null): void
     {
-        if (($path === null) || (\strpos($path, '://') !== false) || ! \is_writable($path)) {
-            /* @phpstan-ignore-next-line */
-            $this->path = K_PATH_CACHE;
+        if ($path === null || \str_contains($path, '://') || !\is_writable($path)) {
+            $this->path = (string) \constant('K_PATH_CACHE');
             return;
         }
 
@@ -134,12 +126,8 @@ class Cache
      */
     public function delete(?string $type = null, ?string $key = null): void
     {
-        $safeType = ($type !== null)
-            ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $type)
-            : null;
-        $safeKey = ($key !== null)
-            ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $key)
-            : null;
+        $safeType = $type !== null ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $type) : null;
+        $safeKey = $key !== null ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $key) : null;
 
         $path = $this->path . $this->prefix;
         if ($safeType !== null) {
@@ -151,7 +139,7 @@ class Cache
 
         $path .= '*';
         $files = \glob($path);
-        if (($files === []) || ($files === false)) {
+        if ($files === [] || $files === false) {
             return;
         }
 
@@ -167,7 +155,7 @@ class Cache
     {
         $pattern = $this->path . $this->prefix . '*';
         $files = \glob($pattern);
-        if (($files === []) || ($files === false)) {
+        if ($files === [] || $files === false) {
             return;
         }
 
@@ -189,7 +177,10 @@ class Cache
             return;
         }
 
-        $kPathCache = \ini_get('upload_tmp_dir') ?: \sys_get_temp_dir();
+        $kPathCache = \ini_get('upload_tmp_dir');
+        if ($kPathCache === false || $kPathCache === '') {
+            $kPathCache = \sys_get_temp_dir();
+        }
         \define('K_PATH_CACHE', $this->normalizePath($kPathCache));
     }
 
@@ -205,7 +196,7 @@ class Cache
             return '';
         }
 
-        if (! \str_ends_with($rpath, '/')) {
+        if (!\str_ends_with($rpath, '/')) {
             $rpath .= '/';
         }
 

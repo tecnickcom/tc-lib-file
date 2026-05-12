@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Byte.php
  *
@@ -35,16 +37,12 @@ class Byte
      * Initialize a new string to be processed
      *
      * @param string $str String from where to extract values
-     *
-     * @throws \RangeException on any out-of-bounds read attempt.
      */
-    public function __construct(
-        /**
-         * String to process
-         */
-        protected string $str
-    ) {
-    }
+    public function __construct(/**
+     * String to process
+     */
+        protected string $str,
+    ) {}
 
     /**
      * Verify that an offset + length read is within the string bounds.
@@ -56,10 +54,15 @@ class Byte
      */
     private function checkBounds(int $offset, int $length): void
     {
-        if ($offset + $length > \strlen($this->str)) {
+        if (($offset + $length) > \strlen($this->str)) {
             throw new \RangeException(
-                'Out-of-bounds read at offset ' . $offset
-                . ' (length ' . $length . ', string length ' . \strlen($this->str) . ')'
+                'Out-of-bounds read at offset '
+                . $offset
+                . ' (length '
+                . $length
+                . ', string length '
+                . \strlen($this->str)
+                . ')',
             );
         }
     }
@@ -70,12 +73,15 @@ class Byte
      * @param int $offset Point from where to read the data.
      *
      * @return int 8 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getByte(int $offset): int
     {
         $this->checkBounds($offset, 1);
         $val = \unpack('Ci', \substr($this->str, $offset, 1));
-        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFF) : 0);
+        $read = $val !== false ? $val['i'] ?? null : null;
+        return \is_int($read) ? $read & 0xFF : 0;
     }
 
     /**
@@ -84,12 +90,15 @@ class Byte
      * @param int $offset Point from where to read the data
      *
      * @return int 16 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getUShort(int $offset): int
     {
         $this->checkBounds($offset, 2);
         $val = \unpack('ni', \substr($this->str, $offset, 2));
-        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFF) : 0);
+        $read = $val !== false ? $val['i'] ?? null : null;
+        return \is_int($read) ? $read & 0xFFFF : 0;
     }
 
     /**
@@ -98,13 +107,14 @@ class Byte
      * @param int $offset Point from where to read the data.
      *
      * @return int 16 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getShort(int $offset): int
     {
         $val = $this->getUShort($offset);
         // convert to signed 16-bit (two's complement)
         return ($val ^ 0x8000) - 0x8000;
-        ;
     }
 
     /**
@@ -114,6 +124,8 @@ class Byte
      * @param int $offset Point from where to read the data.
      *
      * @return int 16 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getUFWord(int $offset): int
     {
@@ -127,6 +139,8 @@ class Byte
      * @param int $offset Point from where to read the data.
      *
      * @return int 16 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getFWord(int $offset): int
     {
@@ -139,12 +153,15 @@ class Byte
      * @param int $offset Point from where to read the data
      *
      * @return int 32 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getULong(int $offset): int
     {
         $this->checkBounds($offset, 4);
         $val = \unpack('Ni', \substr($this->str, $offset, 4));
-        return $val === false ? 0 : (\is_int($val['i']) ? ($val['i'] & 0xFFFFFFFF) : 0);
+        $read = $val !== false ? $val['i'] ?? null : null;
+        return \is_int($read) ? $read & 0xFFFF_FFFF : 0;
     }
 
     /**
@@ -153,21 +170,25 @@ class Byte
      * @param int $offset Point from where to read the data
      *
      * @return int 32 bit value
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getLong(int $offset): int
     {
         $val = $this->getULong($offset);
         // convert to signed 32-bit (two's complement)
-        return ($val ^ 0x80000000) - 0x80000000;
+        return ($val ^ 0x8000_0000) - 0x8000_0000;
     }
 
     /**
      * Get FIXED from string (32-bit signed fixed-point number (16.16).
      *
      * @param int $offset Point from where to read the data.
+     *
+     * @throws \RangeException if the requested read is out of bounds.
      */
     public function getFixed(int $offset): float
     {
-        return (float) $this->getShort($offset) + ((float) $this->getUShort($offset + 2) / (float) 0x10000);
+        return (float) $this->getShort($offset) + ((float) $this->getUShort($offset + 2) / (float) 0x1_0000);
     }
 }

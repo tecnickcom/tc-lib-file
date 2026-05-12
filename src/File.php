@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * File.php
  *
@@ -102,7 +104,7 @@ class File
      *
      * @var int
      */
-    protected int $maxRemoteSize = 52428800;
+    protected int $maxRemoteSize = 52_428_800;
 
     /**
      * Initialize the File object.
@@ -119,10 +121,10 @@ class File
      */
     public function __construct(
         array $allowedHosts = [],
-        int $maxRemoteSize = 52428800,
+        int $maxRemoteSize = 52_428_800,
         array $curlopts = [],
         ?array $defaultCurlOpts = null,
-        ?array $fixedCurlOpts = null
+        ?array $fixedCurlOpts = null,
     ) {
         $this->allowedHosts = $allowedHosts;
         $this->maxRemoteSize = $maxRemoteSize;
@@ -188,13 +190,15 @@ class File
             throw new FileException('path contains parent directory dots');
         }
 
-        if (! \str_contains($filename, '://')) {
+        if (!\str_contains($filename, '://')) {
             $filename = 'file://' . $filename;
-        } elseif (! \str_starts_with($filename, 'file://')) {
+        }
+
+        if (!\str_starts_with($filename, 'file://')) {
             throw new FileException('this is not a local file');
         }
 
-        $handler = @\fopen($filename, $mode);
+        $handler = \fopen($filename, $mode);
         if ($handler === false) {
             throw new FileException('unable to open the file: ' . $filename);
         }
@@ -208,17 +212,19 @@ class File
      * @param resource $resource A file system pointer resource that is typically created using \fopen().
      *
      * @return int 4-byte integer
+     *
+     * @throws FileException in case of error
      */
     public function fReadInt(mixed $resource): int
     {
-        // suppress notices from fread; we check return value explicitly
-        $data = @\fread($resource, 4);
+        $data = \fread($resource, 4);
         if ($data === false) {
             throw new FileException('unable to read the file');
         }
 
         $val = \unpack('Ni', $data);
-        return $val === false ? 0 : (\is_int($val['i']) ? $val['i'] : 0);
+        $read = $val !== false ? $val['i'] ?? null : null;
+        return \is_int($read) ? $read : 0;
     }
 
     /**
@@ -234,14 +240,14 @@ class File
      */
     public function rfRead(mixed $resource, int $length): string
     {
-        if (! \is_resource($resource)) {
+        if (!\is_resource($resource)) {
             throw new FileException('unable to read the file');
         }
 
         $data = '';
-        while (\strlen($data) < $length && ! \feof($resource)) {
+        while (\strlen($data) < $length && !\feof($resource)) {
             $remaining = \max(1, $length - \strlen($data));
-            $chunk = @\fread($resource, $remaining);
+            $chunk = \fread($resource, $remaining);
             if ($chunk === false || $chunk === '') {
                 break;
             }
@@ -272,6 +278,8 @@ class File
      * The file can be also an URL.
      *
      * @param string $file Name of the file or URL to read.
+     *
+     * @throws FileException in case of error
      */
     public function fileGetContents(string $file): string
     {
@@ -293,6 +301,8 @@ class File
      * @param string $file Name of the file or URL to read.
      *
      * @return string|false File content or FALSE in case the file is unreadable
+     *
+     * @throws FileException in case the remote transfer is aborted due to max size.
      */
     public function getFileData(string $file): string|false
     {
@@ -300,7 +310,7 @@ class File
             return false;
         }
 
-        $ret = @\file_get_contents($file);
+        $ret = \file_get_contents($file);
         if ($ret !== false) {
             return $ret;
         }
@@ -322,15 +332,9 @@ class File
     private function createProgressCallback(int &$bytesRead): callable
     {
         $maxSize = $this->maxRemoteSize;
-        return static function (
-            $curlResource,
-            $downloadSize,
-            $downloaded,
-            $uploadSize,
-            $uploaded
-        ) use (
+        return static function ($_curlResource, $_downloadSize, $downloaded, $_uploadSize, $_uploaded) use (
             &$bytesRead,
-            $maxSize
+            $maxSize,
         ) {
             // @phpstan-ignore-next-line
             $bytesRead = (int) $downloaded;
@@ -347,13 +351,15 @@ class File
      *
      * @param string $url URL to read.
      *
+     * @throws FileException if the remote transfer is aborted due to max size.
+     *
      * @SuppressWarnings("PHPMD.CyclomaticComplexity")
      */
     public function getUrlData(string $url): string|false
     {
         if (
-            (\ini_get('allow_url_fopen') && ! \defined('FORCE_CURL'))
-            || (! \function_exists('curl_init'))
+            \ini_get('allow_url_fopen') && !\defined('FORCE_CURL')
+            || !\function_exists('curl_init')
             || \preg_match('%^https?://%', $url) === 0
             || \preg_match('%^https?://%', $url) === false
         ) {
@@ -362,10 +368,14 @@ class File
 
         // try to get remote file data using cURL
         $curlHandle = \curl_init();
+        if ($curlHandle === false) {
+            return false;
+        }
 
         $curlopts = [];
 
-        if (\ini_get('open_basedir') == '') {
+        $openBasedir = \ini_get('open_basedir');
+        if ($openBasedir === false || $openBasedir === '') {
             $curlopts[CURLOPT_FOLLOWLOCATION] = true;
         }
 
@@ -388,7 +398,7 @@ class File
             $curlError = \curl_errno($curlHandle);
             if ($curlError === 42) { // CURLE_ABORTED_BY_CALLBACK
                 throw new FileException(
-                    'remote file exceeds maximum allowed size of ' . $this->maxRemoteSize . ' bytes'
+                    'remote file exceeds maximum allowed size of ' . $this->maxRemoteSize . ' bytes',
                 );
             }
 
@@ -398,8 +408,7 @@ class File
 
             return $ret === true ? '' : $ret;
         } finally {
-            // phpcs:ignore PHPCompatibility.FunctionUse.RemovedFunctions.curl_closeDeprecated
-            @\curl_close($curlHandle);
+            // Let PHP close the cURL handle automatically at scope end.
         }
     }
 
@@ -428,17 +437,17 @@ class File
      */
     protected function getAltLocalUrlPath(string $file): string
     {
+        $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
         if (
-            (\strlen($file) > 1)
-            && ($file[0] === '/')
-            && ($file[1] !== '/')
-            && ! empty($_SERVER['DOCUMENT_ROOT'])
-            && \is_string($_SERVER['DOCUMENT_ROOT'])
-            && ($_SERVER['DOCUMENT_ROOT'] !== '/')
+            \strlen($file) > 1
+            && $file[0] === '/'
+            && $file[1] !== '/'
+            && \is_string($documentRoot)
+            && $documentRoot !== '/'
         ) {
-            $findroot = \strpos($file, (string) $_SERVER['DOCUMENT_ROOT']);
-            if (($findroot === false) || ($findroot > 1)) {
-                $file = \htmlspecialchars_decode(\urldecode($_SERVER['DOCUMENT_ROOT'] . $file));
+            $findroot = \strpos($file, $documentRoot);
+            if ($findroot === false || $findroot > 1) {
+                $file = \htmlspecialchars_decode(\urldecode($documentRoot . $file));
             }
         }
 
@@ -454,12 +463,8 @@ class File
      */
     protected function getAltMissingUrlProtocol(string $file): string
     {
-        if (
-            \preg_match('%^//%', $file)
-            && ! empty($_SERVER['HTTP_HOST'])
-            && \is_string($_SERVER['HTTP_HOST'])
-            && $this->validateHost($_SERVER['HTTP_HOST'])
-        ) {
+        $httpHost = $_SERVER['HTTP_HOST'] ?? null;
+        if (\preg_match('%^//%', $file) && \is_string($httpHost) && $this->validateHost($httpHost)) {
             $file = $this->getDefaultUrlProtocol() . ':' . \str_replace(' ', '%20', $file);
         }
 
@@ -472,11 +477,8 @@ class File
     protected function getDefaultUrlProtocol(): string
     {
         $protocol = 'http';
-        if (
-            ! empty($_SERVER['HTTPS'])
-            && \is_string($_SERVER['HTTPS'])
-            && (\strtolower($_SERVER['HTTPS']) != 'off')
-        ) {
+        $https = $_SERVER['HTTPS'] ?? null;
+        if (\is_string($https) && $https !== '' && \strtolower($https) !== 'off') {
             $protocol .= 's';
         }
 
@@ -494,27 +496,27 @@ class File
      */
     protected function getAltPathFromUrl(string $url): string
     {
+        $httpHost = $_SERVER['HTTP_HOST'] ?? null;
+        $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
+
         if (
-            \preg_match('%^(https?)://%', $url) === 0
-            || \preg_match('%^(https?)://%', $url) === false
-            || empty($_SERVER['HTTP_HOST'])
-            || ! \is_string($_SERVER['HTTP_HOST'])
-            || ! $this->validateHost($_SERVER['HTTP_HOST'])
-            || empty($_SERVER['DOCUMENT_ROOT'])
-            || ! \is_string($_SERVER['DOCUMENT_ROOT'])
+            \preg_match('%^(https?)://%', $url) !== 1
+            || !\is_string($httpHost)
+            || !$this->validateHost($httpHost)
+            || !\is_string($documentRoot)
         ) {
             return $url;
         }
 
         $urldata = \parse_url($url);
-        if (isset($urldata['query']) && $urldata['query'] !== '') {
+        if (\is_array($urldata) && \array_key_exists('query', $urldata)) {
             return $url;
         }
 
-        $host = $this->getDefaultUrlProtocol() . '://' . $_SERVER['HTTP_HOST'];
+        $host = $this->getDefaultUrlProtocol() . '://' . $httpHost;
         if (\str_starts_with($url, $host)) {
             // convert URL to full server path
-            $tmp = \str_replace($host, $_SERVER['DOCUMENT_ROOT'], $url);
+            $tmp = \str_replace($host, $documentRoot, $url);
             return \htmlspecialchars_decode(\urldecode($tmp));
         }
 
@@ -530,26 +532,29 @@ class File
      */
     protected function getAltUrlFromPath(string $file): string
     {
+        $scriptUri = $_SERVER['SCRIPT_URI'] ?? null;
         if (
-            isset($_SERVER['SCRIPT_URI'])
-            && \is_string($_SERVER['SCRIPT_URI'])
-            && (\preg_match('%^(ftp|https?)://%', $file) === 0
-            || \preg_match('%^(ftp|https?)://%', $file) === false)
-            && (\preg_match('%^//%', $file) === 0
-            || \preg_match('%^//%', $file) === false)
+            \is_string($scriptUri)
+            && $scriptUri !== ''
+            && (\preg_match('%^(ftp|https?)://%', $file) === 0 || \preg_match('%^(ftp|https?)://%', $file) === false)
+            && (\preg_match('%^//%', $file) === 0 || \preg_match('%^//%', $file) === false)
         ) {
-            $urldata = @\parse_url($_SERVER['SCRIPT_URI']);
-            if (! \is_array($urldata) || ! isset($urldata['scheme']) || ! isset($urldata['host'])) {
+            $urldata = \parse_url($scriptUri);
+            if (
+                !\is_array($urldata)
+                || !\array_key_exists('scheme', $urldata)
+                || !\array_key_exists('host', $urldata)
+            ) {
                 return $file;
             }
 
             // Validate SCRIPT_URI host against allowlist to prevent SSRF attacks.
             // If the host is not trusted, return the original file path unchanged.
-            if (! $this->validateHost($urldata['host'])) {
+            if (!$this->validateHost($urldata['host'])) {
                 return $file;
             }
 
-            return $urldata['scheme'] . '://' . $urldata['host'] . (($file[0] == '/') ? '' : '/') . $file;
+            return $urldata['scheme'] . '://' . $urldata['host'] . ($file[0] === '/' ? '' : '/') . $file;
         }
 
         return $file;
@@ -574,9 +579,9 @@ class File
      *
      * @return boolean true if the path is relative
      */
-    public static function hasDoubleDots($path)
+    public static function hasDoubleDots(string $path): bool
     {
-        return (\strpos(\str_ireplace('%2E', '.', \html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..') !== false);
+        return \str_contains(\str_ireplace('%2E', '.', \html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..');
     }
 
     /**
@@ -588,8 +593,8 @@ class File
      *
      * @return boolean true if the protocol is not allowed.
      */
-    public static function hasForbiddenProtocol($path)
+    public static function hasForbiddenProtocol(string $path): bool
     {
-        return ((\strpos($path, '://') !== false) && (\preg_match('%^(file|https?)://%', $path) !== 1));
+        return \str_contains($path, '://') && \preg_match('%^(file|https?)://%', $path) !== 1;
     }
 }

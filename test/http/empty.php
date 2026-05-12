@@ -1,5 +1,7 @@
 <?php
 
+return;
+
 /**
  * empty.php - Test HTTP endpoint that returns an empty response body.
  *

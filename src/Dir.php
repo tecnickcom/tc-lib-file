@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * Dir.php
  *
@@ -46,7 +48,7 @@ class Dir
                 $dir = '';
             }
 
-            if (@\is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
+            if (\is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
                 $dir = $dir . DIRECTORY_SEPARATOR . $name;
                 break;
             }

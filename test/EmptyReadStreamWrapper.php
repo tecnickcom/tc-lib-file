@@ -42,7 +42,7 @@ class EmptyReadStreamWrapper
     public function stream_read(int $count): string
     {
         unset($count);
-        if (! $this->initialRead) {
+        if (!$this->initialRead) {
             $this->initialRead = true;
             return $this->initialData;
         }

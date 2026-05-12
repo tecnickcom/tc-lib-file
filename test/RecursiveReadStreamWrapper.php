@@ -37,7 +37,7 @@ class RecursiveReadStreamWrapper
     public function stream_read(int $count): string
     {
         ++$this->reads;
-        $length = ($this->reads === 1) ? \min(2, $count) : $count;
+        $length = $this->reads === 1 ? \min(2, $count) : $count;
         $chunk = \substr($this->data, $this->position, $length);
         $this->position += \strlen($chunk);
 

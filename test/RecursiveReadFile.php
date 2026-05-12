@@ -20,6 +20,6 @@ class RecursiveReadFile extends \Com\Tecnick\File\File
 {
     protected function hasUnreadBytes(mixed $resource): bool
     {
-        return \is_resource($resource) && ! \feof($resource);
+        return \is_resource($resource) && !\feof($resource);
     }
 }

@@ -62,6 +62,9 @@ class CacheTest extends TestUtil
         $this->assertEquals('_1_2-a-B_c_', $filePrefix);
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testGetNewFileName(): void
     {
         $cache = $this->getTestObject();
@@ -77,7 +80,6 @@ class CacheTest extends TestUtil
         // invoke protected normalizePath via reflection so we can test
         // the branch where realpath() returns false
         $ref = new \ReflectionMethod($cache, 'normalizePath');
-        $ref->setAccessible(true);
 
         $invalid = \sys_get_temp_dir() . '/nonexistent_' . \uniqid('', true);
         $this->assertFalse(\file_exists($invalid), 'Sanity check: path should not exist');
@@ -85,10 +87,15 @@ class CacheTest extends TestUtil
         $this->assertSame('', $ref->invoke($cache, $invalid));
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDelete(): void
     {
         $cache = $this->getTestObject();
         $idk = 0;
+        /** @var array<int, string> $file */
+        $file = [];
         for ($idx = 1; $idx <= 2; ++$idx) {
             for ($idy = 1; $idy <= 2; ++$idy) {
                 $file[$idk] = $cache->getNewFileName((string) $idx, (string) $idy);
@@ -98,21 +105,29 @@ class CacheTest extends TestUtil
             }
         }
 
+        $f0 = $file[0] ?? '';
+        $f1 = $file[1] ?? '';
+        $f2 = $file[2] ?? '';
+        $f3 = $file[3] ?? '';
+
         // delete a specific type/key pair
         $cache->delete('2', '1');
-        $this->assertFalse(\file_exists($file[2]));
+        $this->assertFalse(\file_exists($f2));
 
         // delete all entries for type "1"
         $cache->delete('1');
-        $this->assertFalse(\file_exists($file[0]));
-        $this->assertFalse(\file_exists($file[1]));
-        $this->assertTrue(\file_exists($file[3]));
+        $this->assertFalse(\file_exists($f0));
+        $this->assertFalse(\file_exists($f1));
+        $this->assertTrue(\file_exists($f3));
 
         // delete everything
         $cache->delete();
-        $this->assertFalse(\file_exists($file[3]));
+        $this->assertFalse(\file_exists($f3));
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testKeyOnlyDeletesAll(): void
     {
         $cache = $this->getTestObject();
@@ -125,6 +140,9 @@ class CacheTest extends TestUtil
         $this->assertFalse(\file_exists($file));
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteNonExistingPatterns(): void
     {
         $cache = $this->getTestObject();
@@ -181,6 +199,9 @@ class CacheTest extends TestUtil
     // Issue 4: glob-injection sanitisation in delete()
     // -------------------------------------------------------------------------
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteGlobCharsInTypeSanitised(): void
     {
         $cache = new \Com\Tecnick\File\Cache('safepfx');
@@ -200,6 +221,9 @@ class CacheTest extends TestUtil
         \unlink($real);
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteGlobCharsInKeySanitised(): void
     {
         $cache = new \Com\Tecnick\File\Cache('safepfx2');
@@ -243,6 +267,9 @@ class CacheTest extends TestUtil
         $this->expectNotToPerformAssertions();
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteOlderThan(): void
     {
         $cache = new \Com\Tecnick\File\Cache('ttl');
