@@ -489,6 +489,22 @@ class FileTest extends TestUtil
         $this->assertSame(1048576, $file->getMaxRemoteSize());
     }
 
+    public function testSetAllowedHostsIsFluentAndUsedByValidator(): void
+    {
+        $file = new class() extends \Com\Tecnick\File\File {
+            public function validateHostProxy(string $host): bool
+            {
+                return $this->validateHost($host);
+            }
+        };
+
+        $ret = $file->setAllowedHosts(['trusted.example']);
+        $this->assertSame($file, $ret);
+
+        $this->assertTrue($file->validateHostProxy('trusted.example'));
+        $this->assertFalse($file->validateHostProxy('other.example'));
+    }
+
     public function testHasDoubleDots(): void
     {
         $file = $this->getTestObject();
