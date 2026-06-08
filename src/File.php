@@ -610,6 +610,47 @@ class File
     }
 
     /**
+     * Resolve a local file path against explicit base directories.
+     *
+     * This helper does not validate trust boundaries and does not perform any
+     * file read. It only turns an existing local relative path into an absolute
+     * canonical path when one of the provided base directories matches.
+     *
+     * @param string        $file     Local file path to resolve.
+     * @param array<string> $baseDirs Candidate base directories checked in order.
+     */
+    public function resolveLocalPath(string $file, array $baseDirs = []): string
+    {
+        $file = \trim($file);
+        if ($file === '' || $this->hasDoubleDots($file) || \str_contains($file, '://')) {
+            return $file;
+        }
+
+        $resolved = \realpath($file);
+        if (\is_string($resolved) && $resolved !== '') {
+            return $resolved;
+        }
+
+        foreach ($baseDirs as $baseDir) {
+            if ($baseDir === '') {
+                continue;
+            }
+
+            $resolvedBase = \realpath($baseDir);
+            if (!\is_string($resolvedBase) || $resolvedBase === '') {
+                continue;
+            }
+
+            $resolved = \realpath($resolvedBase . \DIRECTORY_SEPARATOR . $file);
+            if (\is_string($resolved) && $resolved !== '') {
+                return $resolved;
+            }
+        }
+
+        return $file;
+    }
+
+    /**
      * Replace URL relative path with full real server path
      *
      * @param string $file Relative URL path

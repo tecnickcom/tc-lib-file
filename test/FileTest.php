@@ -520,14 +520,65 @@ class FileTest extends TestUtil
     {
         $file = new \Com\Tecnick\File\File();
 
-        $ret = $file->setAllowedPaths(['/var/www']);
-        $this->assertSame($file, $ret);
+        $tmpDir = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true);
+        $this->assertTrue(\mkdir($tmpDir, 0o755, true));
 
-        $allowedPath = '/var/www/app/file.txt';
-        $this->assertTrue($file->isValidFile($allowedPath));
+        $allowedPath = $tmpDir . '/file.txt';
+        $this->assertSame(\file_put_contents($allowedPath, 'ok'), 2);
 
-        $blockedPath = '/opt/data/file.txt';
-        $this->assertFalse($file->isValidFile($blockedPath));
+        try {
+            $ret = $file->setAllowedPaths([$tmpDir]);
+            $this->assertSame($file, $ret);
+
+            $this->assertTrue($file->isValidFile($allowedPath));
+
+            $blockedPath = \sys_get_temp_dir() . '/blocked-' . \uniqid('', true) . '.txt';
+            $this->assertFalse($file->isValidFile($blockedPath));
+        } finally {
+            if (\is_file($allowedPath)) {
+                \unlink($allowedPath);
+            }
+
+            if (\is_dir($tmpDir)) {
+                \rmdir($tmpDir);
+            }
+        }
+    }
+
+    public function testResolveLocalPathUsesExplicitBaseDirs(): void
+    {
+        $file = new \Com\Tecnick\File\File();
+
+        $baseDir = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true);
+        $imagesDir = $baseDir . '/images';
+        $imagePath = $imagesDir . '/tcpdf_logo.jpg';
+
+        $this->assertTrue(\mkdir($imagesDir, 0o755, true));
+        $this->assertSame(2, \file_put_contents($imagePath, 'ok'));
+
+        try {
+            $resolved = $file->resolveLocalPath('images/tcpdf_logo.jpg', [$baseDir]);
+
+            $this->assertSame(\realpath($imagePath), $resolved);
+        } finally {
+            if (\is_file($imagePath)) {
+                \unlink($imagePath);
+            }
+            if (\is_dir($imagesDir)) {
+                \rmdir($imagesDir);
+            }
+            if (\is_dir($baseDir)) {
+                \rmdir($baseDir);
+            }
+        }
+    }
+
+    public function testResolveLocalPathLeavesSchemedInputsUntouched(): void
+    {
+        $file = new \Com\Tecnick\File\File();
+        $url = 'https://example.com/logo.jpg';
+
+        $this->assertSame($url, $file->resolveLocalPath($url, [__DIR__]));
     }
 
     public function testHasDoubleDots(): void
@@ -645,26 +696,56 @@ class FileTest extends TestUtil
 
     public function testValidatePathAcceptsAllowedPrefix(): void
     {
-        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+        $baseDir = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true);
+        $this->assertTrue(\mkdir($baseDir, 0o755, true));
 
-        $path = '/var/www/assets/file.txt';
-        $this->assertTrue($testObj->isValidFile($path));
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$baseDir]);
+
+        try {
+            $path = $baseDir . '/assets/file.txt';
+            $this->assertTrue($testObj->isValidFile($path));
+        } finally {
+            if (\is_dir($baseDir . '/assets')) {
+                \rmdir($baseDir . '/assets');
+            }
+            if (\is_dir($baseDir)) {
+                \rmdir($baseDir);
+            }
+        }
     }
 
     public function testValidatePathRejectsNonMatchingPrefix(): void
     {
-        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+        $baseDir = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true);
+        $this->assertTrue(\mkdir($baseDir, 0o755, true));
 
-        $path = '/srv/data/file.txt';
-        $this->assertFalse($testObj->isValidFile($path));
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$baseDir]);
+
+        try {
+            $path = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true) . '/file.txt';
+            $this->assertFalse($testObj->isValidFile($path));
+        } finally {
+            if (\is_dir($baseDir)) {
+                \rmdir($baseDir);
+            }
+        }
     }
 
     public function testValidatePathRejectsSiblingPrefixBypass(): void
     {
-        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+        $baseDir = \sys_get_temp_dir() . '/tc-lib-file-' . \uniqid('', true);
+        $this->assertTrue(\mkdir($baseDir, 0o755, true));
 
-        $path = '/var/www_evil/secret.txt';
-        $this->assertFalse($testObj->isValidFile($path));
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$baseDir]);
+
+        try {
+            $path = $baseDir . '_evil/secret.txt';
+            $this->assertFalse($testObj->isValidFile($path));
+        } finally {
+            if (\is_dir($baseDir)) {
+                \rmdir($baseDir);
+            }
+        }
     }
 
     public function testIsPathWithinAllowedRootsSkipsEmptyRoots(): void
