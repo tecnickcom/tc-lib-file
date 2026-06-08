@@ -67,11 +67,60 @@ composer require tecnickcom/tc-lib-file
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-$file = new \Com\Tecnick\File\File();
+$file = new \Com\Tecnick\File\File(
+	allowedHosts: ['example.com', 'cdn.example.com'],
+	allowedPaths: [__DIR__, '/var/app/uploads'],
+	curlopts: [
+		CURLOPT_MAXREDIRS => 3,
+	],
+);
 $fh = $file->fopenLocal(__FILE__, 'rb');
 $header = $file->fReadInt($fh);
 
 var_dump($header);
+```
+
+## Security Configuration (Required)
+
+`File` defaults to strict-deny behavior for host and path validation.
+
+- `allowedHosts` defaults to an empty array, so remote URLs and host-based alternate path resolution are rejected unless you explicitly trust hosts.
+- `allowedPaths` defaults to an empty array, so local file operations are rejected unless you explicitly trust path prefixes.
+
+You should always pass explicit allowlists in the constructor (or set them immediately via setters) for production use.
+
+Example:
+
+```php
+$file = new \Com\Tecnick\File\File(
+	allowedHosts: ['example.com'],
+	allowedPaths: ['/srv/my-app/data'],
+);
+
+// Equivalent runtime configuration:
+$file
+	->setAllowedHosts(['example.com'])
+	->setAllowedPaths(['/srv/my-app/data']);
+```
+
+Avoid wildcard trust (`'*'`) unless you fully control all inputs and deployment boundaries.
+
+### Redirect Handling via `CURLOPT_MAXREDIRS`
+
+Redirect validation is enabled when `CURLOPT_MAXREDIRS` is non-zero.
+
+- `CURLOPT_MAXREDIRS => 0` (default): no redirect-follow validation callback is installed.
+- `CURLOPT_MAXREDIRS > 0`: redirects are processed and each `Location` target is validated.
+
+To allow redirects, set a positive max-redirs value and ensure redirect target hosts are present in `allowedHosts`.
+
+```php
+$file = new \Com\Tecnick\File\File(
+	allowedHosts: ['example.com', 'downloads.example.com'],
+	curlopts: [
+		CURLOPT_MAXREDIRS => 5,
+	],
+);
 ```
 
 ---

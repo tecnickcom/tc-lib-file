@@ -50,6 +50,42 @@ Integrators are responsible for sanitising input **before** passing it to the li
 - **Keep dependencies up to date.** Run `composer update` regularly and monitor advisories via [Packagist Security Advisories](https://packagist.org/packages/tecnickcom/tc-lib-file) or tools such as `composer audit`.
 - **Pin versions in production.** Use `composer.lock` and review changes on every update.
 
+### Required Runtime Configuration
+
+By design, `Com\Tecnick\File\File` starts in a restrictive mode:
+
+- `allowedHosts` defaults to `[]` (no host trusted).
+- `allowedPaths` defaults to `[]` (no local path trusted).
+
+You must explicitly define trusted values before using remote URL reads or local path reads in production.
+
+```php
+$file = new \Com\Tecnick\File\File(
+   allowedHosts: ['example.com', 'cdn.example.com'],
+   allowedPaths: ['/srv/my-app/files'],
+);
+```
+
+Avoid wildcard trust (`'*'`) unless you have a tightly controlled environment and fully trusted inputs.
+
+### Redirect Policy (`CURLOPT_MAXREDIRS`)
+
+Redirect processing is controlled by cURL options:
+
+- `CURLOPT_MAXREDIRS => 0` disables redirect-follow validation callback behavior used by this library.
+- `CURLOPT_MAXREDIRS > 0` enables redirect handling with `Location` target validation.
+
+If you enable redirects, ensure every possible redirect target host is present in `allowedHosts`.
+
+```php
+$file = new \Com\Tecnick\File\File(
+   allowedHosts: ['example.com', 'downloads.example.com'],
+   curlopts: [
+      CURLOPT_MAXREDIRS => 5,
+   ],
+);
+```
+
 ---
 
 ## Contact

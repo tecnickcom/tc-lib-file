@@ -38,9 +38,10 @@ class Byte
      *
      * @param string $str String from where to extract values
      */
-    public function __construct(/**
-     * String to process
-     */
+    public function __construct(
+        /**
+         * String to process
+         */
         protected string $str,
     ) {}
 

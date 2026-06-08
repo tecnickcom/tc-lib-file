@@ -250,8 +250,8 @@ class CacheTest extends TestUtil
     // -------------------------------------------------------------------------
 
     // Testing the exception path of getNewFileName() requires tempnam() to return false,
-    // which cannot be triggered reliably in PHP because tempnam() falls back to the
-    // system temporary directory. The exception path is covered by code inspection only.
+    // which is not deterministic in this environment because tempnam() can fall back
+    // to the system temporary directory.
 
     // -------------------------------------------------------------------------
     // Issue 10: deleteOlderThan()

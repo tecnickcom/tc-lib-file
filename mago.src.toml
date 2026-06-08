@@ -23,7 +23,7 @@ integrations = []
 ambiguous-function-call = { enabled = false }
 literal-named-argument = { enabled = false }
 cyclomatic-complexity = { enabled = false }
-excessive-parameter-list = { enabled = true }
+excessive-parameter-list = { enabled = false }
 halstead = { enabled = true, effort-threshold = 7000 }
 identity-comparison = { enabled = true }
 kan-defect = { enabled = false }

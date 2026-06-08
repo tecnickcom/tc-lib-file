@@ -139,7 +139,7 @@ class FileTest extends TestUtil
      */
     public function testFopenLocal(): void
     {
-        $file = $this->getTestObject();
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
         $handle = $file->fopenLocal(__FILE__, 'r');
         $this->bcAssertIsResource($handle);
         \fclose($handle);
@@ -163,6 +163,16 @@ class FileTest extends TestUtil
         $this->bcExpectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fopenLocal('/missing_error.txt', 'r');
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testFopenLocalOpenFailureAfterValidation(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+        $file->fopenLocal('/definitely-missing-' . \uniqid('', true) . '.txt', 'r');
     }
 
     /**
@@ -461,7 +471,7 @@ class FileTest extends TestUtil
      */
     public function testFileGetContents(): void
     {
-        $file = $this->getTestObject();
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
         $res = $file->fileGetContents(__FILE__);
         $this->assertEquals('<?php', \substr($res, 0, 5));
     }
@@ -494,7 +504,7 @@ class FileTest extends TestUtil
         $file = new class() extends \Com\Tecnick\File\File {
             public function validateHostProxy(string $host): bool
             {
-                return $this->validateHost($host);
+                return $this->isValidHost($host);
             }
         };
 
@@ -503,27 +513,35 @@ class FileTest extends TestUtil
 
         $this->assertTrue($file->validateHostProxy('trusted.example'));
         $this->assertFalse($file->validateHostProxy('other.example'));
+        $this->assertFalse($file->validateHostProxy(''));
+    }
+
+    public function testSetAllowedPathsIsFluentAndUsedByValidator(): void
+    {
+        $file = new \Com\Tecnick\File\File();
+
+        $ret = $file->setAllowedPaths(['/var/www']);
+        $this->assertSame($file, $ret);
+
+        $allowedPath = '/var/www/app/file.txt';
+        $this->assertTrue($file->isValidFile($allowedPath));
+
+        $blockedPath = '/opt/data/file.txt';
+        $this->assertFalse($file->isValidFile($blockedPath));
     }
 
     public function testHasDoubleDots(): void
     {
-        $file = $this->getTestObject();
-        $res = $file->hasDoubleDots('/tmp/../test.txt');
-        $this->assertTrue($res);
-        $res = $file->hasDoubleDots('/tmp/test.txt');
-        $this->assertFalse($res);
-    }
+        $file = new class() extends \Com\Tecnick\File\File {
+            public function hasDoubleDotsProxy(string $path): bool
+            {
+                return $this->hasDoubleDots($path);
+            }
+        };
 
-    public function testHasForbiddenProtocol(): void
-    {
-        $file = $this->getTestObject();
-        $res = $file->hasForbiddenProtocol('phar://test.txt');
+        $res = $file->hasDoubleDotsProxy('/tmp/../test.txt');
         $this->assertTrue($res);
-        $res = $file->hasForbiddenProtocol('http://www.example.com/test.txt');
-        $this->assertFalse($res);
-        $res = $file->hasForbiddenProtocol('file://some/file.txt');
-        $this->assertFalse($res);
-        $res = $file->hasForbiddenProtocol('./some/file.txt');
+        $res = $file->hasDoubleDotsProxy('/tmp/test.txt');
         $this->assertFalse($res);
     }
 
@@ -625,15 +643,198 @@ class FileTest extends TestUtil
         $this->assertSame($url, $result, 'Spoofed host must not be used to build a local path');
     }
 
-    // -------------------------------------------------------------------------
-    // Issue 5: FTP protocols no longer supported
-    // -------------------------------------------------------------------------
-
-    public function testHasForbiddenProtocolFtp(): void
+    public function testValidatePathAcceptsAllowedPrefix(): void
     {
-        $file = $this->getTestObject();
-        $this->assertTrue($file->hasForbiddenProtocol('ftp://example.com/file.txt'));
-        $this->assertTrue($file->hasForbiddenProtocol('ftps://example.com/file.txt'));
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+
+        $path = '/var/www/assets/file.txt';
+        $this->assertTrue($testObj->isValidFile($path));
+    }
+
+    public function testValidatePathRejectsNonMatchingPrefix(): void
+    {
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+
+        $path = '/srv/data/file.txt';
+        $this->assertFalse($testObj->isValidFile($path));
+    }
+
+    public function testValidatePathRejectsSiblingPrefixBypass(): void
+    {
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['/var/www']);
+
+        $path = '/var/www_evil/secret.txt';
+        $this->assertFalse($testObj->isValidFile($path));
+    }
+
+    public function testIsPathWithinAllowedRootsSkipsEmptyRoots(): void
+    {
+        $testObj = new class() extends \Com\Tecnick\File\File {
+            /**
+             * @param array<int, string> $roots
+             */
+            public function isPathWithinAllowedRootsProxy(string $path, array $roots): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $roots);
+            }
+        };
+
+        $this->assertTrue($testObj->isPathWithinAllowedRootsProxy('/var/www/app/file.txt', ['', '/', '/var/www']));
+    }
+
+    public function testValidatePathReturnsFalseWhenNearestParentCannotBeResolved(): void
+    {
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['foo']);
+
+        $file = 'foo';
+        $this->assertFalse($testObj->isValidFile($file));
+    }
+
+    public function testValidatePathRejectsSymlinkEscape(): void
+    {
+        if (!\function_exists('symlink')) {
+            $this->markTestSkipped('symlink is not available in this environment');
+        }
+
+        $withoutWarnings = static function (callable $callback): mixed {
+            \set_error_handler(static fn(): bool => true, E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE);
+
+            try {
+                return $callback();
+            } finally {
+                \restore_error_handler();
+            }
+        };
+
+        $base = \sys_get_temp_dir() . '/tcfile_' . \uniqid('', true);
+        $allowedDir = $base . '/allowed';
+        \mkdir($allowedDir, 0o777, true);
+        $link = $allowedDir . '/passwd-link';
+
+        if (!$withoutWarnings(static fn(): bool => \symlink('/etc/passwd', $link))) {
+            $this->markTestSkipped('unable to create symlink in this environment');
+        }
+
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$base]);
+
+        try {
+            $this->assertFalse($testObj->isValidFile($link));
+        } finally {
+            if (\is_link($link) || \file_exists($link)) {
+                $withoutWarnings(static fn(): bool => \unlink($link));
+            }
+
+            if (\is_dir($allowedDir)) {
+                $withoutWarnings(static fn(): bool => \rmdir($allowedDir));
+            }
+
+            if (\is_dir($base)) {
+                $withoutWarnings(static fn(): bool => \rmdir($base));
+            }
+        }
+    }
+
+    public function testValidatePathRejectsSymlinkDirectoryEscapeForMissingTarget(): void
+    {
+        if (!\function_exists('symlink')) {
+            $this->markTestSkipped('symlink is not available in this environment');
+        }
+
+        $withoutWarnings = static function (callable $callback): mixed {
+            \set_error_handler(static fn(): bool => true, E_WARNING | E_NOTICE | E_USER_WARNING | E_USER_NOTICE);
+
+            try {
+                return $callback();
+            } finally {
+                \restore_error_handler();
+            }
+        };
+
+        $base = \sys_get_temp_dir() . '/tcfile_' . \uniqid('', true);
+        $allowedDir = $base . '/allowed';
+        $outsideDir = \sys_get_temp_dir() . '/tcfile_outside_' . \uniqid('', true);
+        \mkdir($allowedDir, 0o777, true);
+        \mkdir($outsideDir, 0o777, true);
+
+        $link = $allowedDir . '/escape-link';
+        if (!$withoutWarnings(static fn(): bool => \symlink($outsideDir, $link))) {
+            $this->markTestSkipped('unable to create symlink in this environment');
+        }
+
+        $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$base]);
+        $target = $link . '/new-file.txt';
+
+        try {
+            $this->assertFalse($testObj->isValidFile($target));
+        } finally {
+            if (\is_link($link) || \file_exists($link)) {
+                $withoutWarnings(static fn(): bool => \unlink($link));
+            }
+
+            if (\is_dir($outsideDir)) {
+                $withoutWarnings(static fn(): bool => \rmdir($outsideDir));
+            }
+
+            if (\is_dir($allowedDir)) {
+                $withoutWarnings(static fn(): bool => \rmdir($allowedDir));
+            }
+
+            if (\is_dir($base)) {
+                $withoutWarnings(static fn(): bool => \rmdir($base));
+            }
+        }
+    }
+
+    public function testIsValidUrlReturnsFalseWhenParseFails(): void
+    {
+        $testObj = new \Com\Tecnick\File\File(['localhost']);
+        $url = 'http://:\\';
+
+        $this->assertFalse($testObj->isValidURL($url));
+    }
+
+    public function testIsValidUrlReturnsFalseWhenHostMissing(): void
+    {
+        $testObj = new \Com\Tecnick\File\File(['localhost']);
+        $url = 'http:/path/without/host';
+
+        $this->assertFalse($testObj->isValidURL($url));
+    }
+
+    public function testIsValidUrlReturnsFalseWhenTrimmedUrlIsEmpty(): void
+    {
+        $testObj = new \Com\Tecnick\File\File(['localhost']);
+        $url = " \t\n\r ";
+
+        $this->assertFalse($testObj->isValidURL($url));
+    }
+
+    public function testValidatePathRejectsNonFileScheme(): void
+    {
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        $ftpPath = 'ftp://example.com/file.txt';
+        $this->assertFalse($file->isValidFile($ftpPath));
+
+        $pharPath = 'phar://archive/file.txt';
+        $this->assertFalse($file->isValidFile($pharPath));
+
+        $httpPath = 'http://www.example.com/file.txt';
+        $this->assertFalse($file->isValidFile($httpPath));
+
+        $localPath = './some/file.txt';
+        $this->assertTrue($file->isValidFile($localPath));
+
+        $fileUrl = 'file://some/file.txt';
+        $this->assertTrue($file->isValidFile($fileUrl));
+    }
+
+    public function testValidatePathRejectsEmptyFileUrlPathEvenWithWildcardTrust(): void
+    {
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        $emptyFileUrl = 'file://   ';
+        $this->assertFalse($file->isValidFile($emptyFileUrl));
     }
 
     // -------------------------------------------------------------------------
@@ -731,9 +932,97 @@ class FileTest extends TestUtil
         $this->assertSame(1, $result);
     }
 
+    public function testBuildRedirectUrlCoversUnsupportedAndRelativeForms(): void
+    {
+        $file = $this->getTestObject();
+
+        $buildRedirectUrl = \Closure::bind(
+            static fn(
+                \Com\Tecnick\File\File $obj,
+                string $location,
+                string $baseUrl,
+            ): string|false => $obj->buildRedirectUrl($location, $baseUrl),
+            null,
+            \Com\Tecnick\File\File::class,
+        );
+
+        $this->assertFalse($buildRedirectUrl($file, '   ', 'https://example.test/base'));
+        $this->assertFalse($buildRedirectUrl($file, '/next', 'http://:\\'));
+        $this->assertFalse($buildRedirectUrl($file, '/next', 'ftp://example.test/base'));
+        $this->assertSame('https://cdn.example.test/file.txt', $buildRedirectUrl(
+            $file,
+            '//cdn.example.test/file.txt',
+            'https://example.test/base',
+        ));
+        $this->assertSame('https://example.test/path/next.txt', $buildRedirectUrl(
+            $file,
+            'next.txt',
+            'https://example.test/path/current.php',
+        ));
+    }
+
+    public function testRedirectValidationCallbackRejectsEmptyAndNonCurlLocationHeaders(): void
+    {
+        $file = new \Com\Tecnick\File\File(['allowed.example']);
+
+        $rfm = new \ReflectionMethod($file, 'createRedirectValidationCallback');
+
+        $invalidRedirect = false;
+        $args = [&$invalidRedirect, 'https://allowed.example/start'];
+        /** @var callable $callback */
+        $callback = $rfm->invokeArgs($file, $args);
+        $this->assertSame(0, $callback(null, "Location:   \r\n"));
+
+        $invalidRedirect = false;
+        $args = [&$invalidRedirect, 'https://allowed.example/start'];
+        /** @var callable $callback */
+        $callback = $rfm->invokeArgs($file, $args);
+        $this->assertSame(0, $callback(null, "Location: /next\r\n"));
+    }
+
     // -------------------------------------------------------------------------
     // Local HTTP server tests — cURL size-limit enforcement and return value
     // -------------------------------------------------------------------------
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetUrlDataWithValidRedirectWhenMaxRedirsEnabled(): void
+    {
+        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
+            $this->markTestSkipped('Local HTTP server not available');
+        }
+
+        if ((string) \ini_get('open_basedir') !== '') {
+            $this->markTestSkipped('Redirect-follow tests require open_basedir to be disabled');
+        }
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+        $file->setCurlOpts([CURLOPT_MAXREDIRS => 3]);
+
+        $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/redirect.php?to=/empty.php');
+        $this->assertSame('', $result);
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetUrlDataReturnsFalseOnInvalidRedirectWhenMaxRedirsEnabled(): void
+    {
+        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
+            $this->markTestSkipped('Local HTTP server not available');
+        }
+
+        if ((string) \ini_get('open_basedir') !== '') {
+            $this->markTestSkipped('Redirect-follow tests require open_basedir to be disabled');
+        }
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+        $file->setCurlOpts([CURLOPT_MAXREDIRS => 3]);
+
+        $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/redirect.php?to=http://example.com/');
+        $this->assertFalse($result);
+    }
 
     /**
      * @throws \Com\Tecnick\File\Exception
@@ -744,7 +1033,7 @@ class FileTest extends TestUtil
             $this->markTestSkipped('Local HTTP server not available');
         }
 
-        $file = $this->getTestObject();
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
         // Set a very small limit so the 1 000-byte response from large.php
         // triggers CURLE_ABORTED_BY_CALLBACK (errno 42).
         $file->setMaxRemoteSize(10);
@@ -765,12 +1054,26 @@ class FileTest extends TestUtil
         // Create a File instance with no fixed cURL options so that
         // CURLOPT_RETURNTRANSFER is not set.  curl_exec() then returns true
         // on success, exercising the `$ret === true ? '' : $ret` branch.
-        $file = new \Com\Tecnick\File\File([], 52428800, [], [], []);
+        $file = new \Com\Tecnick\File\File(['127.0.0.1'], 52428800, [], [], []);
 
         \ob_start();
         $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/empty.php');
         \ob_end_clean();
 
         $this->assertSame('', $result);
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetUrlDataCurlExecFailureReturnsFalse(): void
+    {
+        if (!\function_exists('curl_init')) {
+            $this->markTestSkipped('cURL extension not available');
+        }
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+        $result = $file->getUrlData('http://127.0.0.1:1/unreachable.txt');
+        $this->assertFalse($result);
     }
 }

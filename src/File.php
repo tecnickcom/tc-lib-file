@@ -44,7 +44,7 @@ class File
      */
     protected const CURLOPT_DEFAULT = [
         CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_MAXREDIRS => 0,
         CURLOPT_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP,
         CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS | CURLPROTO_HTTP,
         CURLOPT_TIMEOUT => 30,
@@ -90,12 +90,34 @@ class File
     /**
      * Allowlist of trusted HTTP_HOST values for use in alt-path helpers.
      * An empty array (the default) means no host is trusted, so HTTP_HOST-based
-     * URL construction is skipped entirely.  Set to a non-empty list of exact
+     * URL construction is skipped entirely. Set to a non-empty list of exact
      * hostname strings to enable the feature for specific hosts.
+     *
+     * SECURITY WARNING: using '*' trusts any host value and disables host
+     * validation. If request metadata (for example HTTP_HOST / SCRIPT_URI) is
+     * attacker-controlled via reverse-proxy misconfiguration or header
+     * injection, wildcard trust can enable SSRF/open-redirect style behavior by
+     * letting untrusted hosts influence alternate URL/path resolution.
+     * Prefer explicit trusted hostnames whenever possible.
      *
      * @var array<string>
      */
     protected array $allowedHosts = [];
+
+    /**
+     * Allowlist of trusted file paths for use in local alt-path helpers.
+     * An empty array (the default) means no file path is trusted for
+     * allowlist-based path resolution.
+     *
+     * SECURITY WARNING: using '*' trusts any file path value and disables
+     * path validation. If any path input can be influenced by untrusted data,
+     * wildcard trust can enable local file inclusion/path traversal style
+     * behavior by allowing access to unintended files.
+     * Prefer explicit trusted paths whenever possible.
+     *
+     * @var array<string>
+     */
+    protected array $allowedPaths = [];
 
     /**
      * Maximum size (in bytes) for remote file reads via HTTP(S) or FTP.
@@ -110,14 +132,16 @@ class File
      * Initialize the File object.
      *
      * @param array<string>                    $allowedHosts    Allowlist of trusted hostnames.
-     *                                                             Defaults to an empty array (no host trusted).
+     *                                                          Defaults to an empty array (no host trusted).
      * @param int                              $maxRemoteSize   Maximum size in bytes for remote file reads.
-     *                                                             Defaults to 52428800 (50 MB).
+     *                                                          Defaults to 52428800 (50 MB).
      * @param array<int, bool|int|string>      $curlopts        Custom cURL options to merge over defaults.
      * @param array<int, bool|int|string>|null $defaultCurlOpts Optional override for default cURL options.
-     *                                                             If not provided, CURLOPT_DEFAULT is used.
+     *                                                          If not provided, CURLOPT_DEFAULT is used.
      * @param array<int, bool|int|string>|null $fixedCurlOpts   Optional override for fixed cURL options.
-     *                                                             If not provided, CURLOPT_FIXED is used.
+     *                                                          If not provided, CURLOPT_FIXED is used.
+     * @param array<string>                    $allowedPaths    Allowlist of trusted file paths.
+     *                                                          Defaults to an empty array (no internal path trusted).
      */
     public function __construct(
         array $allowedHosts = [],
@@ -125,12 +149,14 @@ class File
         array $curlopts = [],
         ?array $defaultCurlOpts = null,
         ?array $fixedCurlOpts = null,
+        array $allowedPaths = [],
     ) {
         $this->allowedHosts = $allowedHosts;
         $this->maxRemoteSize = $maxRemoteSize;
         $this->curlopts = $curlopts;
         $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
         $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
+        $this->allowedPaths = $allowedPaths;
     }
 
     /**
@@ -156,6 +182,17 @@ class File
     }
 
     /**
+     * Set the allowlist of trusted file paths.
+     *
+     * @param array<string> $allowedPaths Trusted file path strings.
+     */
+    public function setAllowedPaths(array $allowedPaths): static
+    {
+        $this->allowedPaths = $allowedPaths;
+        return $this;
+    }
+
+    /**
      * Set the maximum size (in bytes) for remote file reads.
      *
      * @param int $maxRemoteSize Maximum allowed bytes.
@@ -175,32 +212,24 @@ class File
     }
 
     /**
-     * Wrapper to use fopen only with local files
+     * Wrapper to use fopen only with local files.
      *
-     * @param string $filename Name of the file to open
-     * @param string $mode     The fopen mode parameter specifies the type of access you require to the stream
+     * @param string $file Name of the file to open.
+     * @param string $mode The fopen mode parameter specifies the type of access you require to the stream.
      *
-     * @return resource Returns a file pointer resource on success
+     * @return resource Returns a file pointer resource on success.
      *
-     * @throws FileException in case of error
+     * @throws FileException in case of error.
      */
-    public function fopenLocal(string $filename, string $mode): mixed
+    public function fopenLocal(string $file, string $mode): mixed
     {
-        if ($this->hasDoubleDots($filename)) {
-            throw new FileException('path contains parent directory dots');
+        if (!$this->isValidFile($file)) {
+            throw new FileException('invalid file');
         }
 
-        if (!\str_contains($filename, '://')) {
-            $filename = 'file://' . $filename;
-        }
-
-        if (!\str_starts_with($filename, 'file://')) {
-            throw new FileException('this is not a local file');
-        }
-
-        $handler = $this->withoutPhpWarnings(static fn() => \fopen($filename, $mode));
+        $handler = $this->withoutPhpWarnings(static fn() => \fopen($file, $mode));
         if ($handler === false) {
-            throw new FileException('unable to open the file: ' . $filename);
+            throw new FileException('unable to open the file: ' . $file);
         }
 
         return $handler;
@@ -211,9 +240,9 @@ class File
      *
      * @param resource $resource A file system pointer resource that is typically created using \fopen().
      *
-     * @return int 4-byte integer
+     * @return int 4-byte integer.
      *
-     * @throws FileException in case of error
+     * @throws FileException in case of error.
      */
     public function fReadInt(mixed $resource): int
     {
@@ -279,7 +308,7 @@ class File
      *
      * @param string $file Name of the file or URL to read.
      *
-     * @throws FileException in case of error
+     * @throws FileException in case of error.
      */
     public function fileGetContents(string $file): string
     {
@@ -296,7 +325,7 @@ class File
 
     /**
      * Reads entire file into a string.
-     * The file can be also an URL if the URL wrappers are enabled.
+     * The file can be also an URL.
      *
      * @param string $file Name of the file or URL to read.
      *
@@ -306,17 +335,31 @@ class File
      */
     public function getFileData(string $file): string|false
     {
-        if ($this->hasDoubleDots($file) || $this->hasForbiddenProtocol($file)) {
+        $data = $this->getLocalFileData($file);
+
+        if ($data === false) {
+            return $this->getUrlData($file);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Reads entire local file into a string.
+     *
+     * @param string $file Name of the file to read.
+     *
+     * @return string|false File content or FALSE in case the file is unreadable
+     *
+     * @throws FileException in case the remote transfer is aborted due to max size.
+     */
+    public function getLocalFileData(string $file): string|false
+    {
+        if (!$this->isValidFile($file)) {
             return false;
         }
 
-        $ret = $this->withoutPhpWarnings(static fn() => \file_get_contents($file));
-        if ($ret !== false) {
-            return $ret;
-        }
-
-        // try to use CURL for URLs
-        return $this->getUrlData($file);
+        return $this->withoutPhpWarnings(static fn() => \file_get_contents($file));
     }
 
     /**
@@ -370,6 +413,105 @@ class File
     }
 
     /**
+     * Build an absolute URL from a redirect Location header value.
+     *
+     * Supports absolute, scheme-relative, root-relative and relative
+     * redirect targets.
+     *
+     * @param string $location Redirect target from Location header.
+     * @param string $baseUrl  Effective URL of the current response.
+     *
+     * @return string|false Absolute HTTP(S) URL or false when invalid.
+     */
+    private function buildRedirectUrl(string $location, string $baseUrl): string|false
+    {
+        $location = \trim($location);
+        if ($location === '') {
+            return false;
+        }
+
+        if (\preg_match('%^https?://%i', $location) === 1) {
+            return $location;
+        }
+
+        $base = \parse_url($baseUrl);
+        if (!\is_array($base)) {
+            return false;
+        }
+
+        $scheme = $base['scheme'] ?? null;
+        $host = $base['host'] ?? null;
+        if (!\is_string($scheme) || !\is_string($host) || $scheme !== 'http' && $scheme !== 'https') {
+            return false;
+        }
+
+        $authority = $scheme . '://' . $host;
+        $port = $base['port'] ?? null;
+        if (\is_int($port)) {
+            $authority .= ':' . $port;
+        }
+
+        if (\str_starts_with($location, '//')) {
+            return $scheme . ':' . $location;
+        }
+
+        if ($location[0] === '/') {
+            return $authority . $location;
+        }
+
+        $basePath = $base['path'] ?? '/';
+
+        $dir = (string) \preg_replace('%/[^/]*$%', '/', $basePath);
+        if ($dir === '') {
+            $dir = '/';
+        }
+
+        return $authority . $dir . $location;
+    }
+
+    /**
+     * Build a cURL header callback that validates each redirect target URL.
+     *
+     * The callback aborts the transfer when a Location header resolves to an
+     * invalid or non-allowlisted URL.
+     *
+     * @param bool   $invalidRedirect Flag set to true when a redirect is invalid.
+     * @param string $initialUrl      Initial request URL.
+     *
+     * @return callable Header callback for CURLOPT_HEADERFUNCTION.
+     */
+    private function createRedirectValidationCallback(bool &$invalidRedirect, string $initialUrl): callable
+    {
+        return function ($curlResource, string $headerLine) use (&$invalidRedirect, $initialUrl): int {
+            if (\stripos($headerLine, 'Location:') !== 0) {
+                return \strlen($headerLine);
+            }
+
+            $location = \trim(\substr($headerLine, 9));
+            if ($location === '') {
+                $invalidRedirect = true;
+                return 0;
+            }
+
+            if (!$curlResource instanceof \CurlHandle) {
+                $invalidRedirect = true;
+                return 0;
+            }
+
+            $effectiveUrl = (string) \curl_getinfo($curlResource, CURLINFO_EFFECTIVE_URL);
+            $baseUrl = $effectiveUrl !== '' ? $effectiveUrl : $initialUrl;
+
+            $redirectUrl = $this->buildRedirectUrl($location, $baseUrl);
+            if ($redirectUrl === false || !$this->isValidURL($redirectUrl)) {
+                $invalidRedirect = true;
+                return 0;
+            }
+
+            return \strlen($headerLine);
+        };
+    }
+
+    /**
      * Reads entire remote file into a string using CURL
      *
      * @param string $url URL to read.
@@ -380,6 +522,10 @@ class File
      */
     public function getUrlData(string $url): string|false
     {
+        if (!$this->isValidURL($url)) {
+            return false;
+        }
+
         if (
             \ini_get('allow_url_fopen') && !\defined('FORCE_CURL')
             || !\function_exists('curl_init')
@@ -412,10 +558,20 @@ class File
         $curlopts[CURLOPT_NOPROGRESS] = false;
         $curlopts[CURLOPT_PROGRESSFUNCTION] = $this->createProgressCallback($bytesRead);
 
+        $invalidRedirect = false;
+        $maxRedirects = (int) ($curlopts[CURLOPT_MAXREDIRS] ?? 0);
+        if ($maxRedirects !== 0) {
+            $curlopts[CURLOPT_HEADERFUNCTION] = $this->createRedirectValidationCallback($invalidRedirect, $url);
+        }
+
         \curl_setopt_array($curlHandle, $curlopts);
 
         try {
             $ret = \curl_exec($curlHandle);
+
+            if ($invalidRedirect) {
+                return false;
+            }
 
             // Check if transfer was aborted due to size limit
             $curlError = \curl_errno($curlHandle);
@@ -487,7 +643,7 @@ class File
     protected function getAltMissingUrlProtocol(string $file): string
     {
         $httpHost = $_SERVER['HTTP_HOST'] ?? null;
-        if (\preg_match('%^//%', $file) && \is_string($httpHost) && $this->validateHost($httpHost)) {
+        if (\preg_match('%^//%', $file) && \is_string($httpHost) && $this->isValidHost($httpHost)) {
             $file = $this->getDefaultUrlProtocol() . ':' . \str_replace(' ', '%20', $file);
         }
 
@@ -525,7 +681,7 @@ class File
         if (
             \preg_match('%^(https?)://%', $url) !== 1
             || !\is_string($httpHost)
-            || !$this->validateHost($httpHost)
+            || !$this->isValidHost($httpHost)
             || !\is_string($documentRoot)
         ) {
             return $url;
@@ -559,8 +715,8 @@ class File
         if (
             \is_string($scriptUri)
             && $scriptUri !== ''
-            && (\preg_match('%^(ftp|https?)://%', $file) === 0 || \preg_match('%^(ftp|https?)://%', $file) === false)
-            && (\preg_match('%^//%', $file) === 0 || \preg_match('%^//%', $file) === false)
+            && \preg_match('%^(https?)://%', $file) !== 1
+            && \preg_match('%^//%', $file) !== 1
         ) {
             $urldata = \parse_url($scriptUri);
             if (
@@ -573,7 +729,7 @@ class File
 
             // Validate SCRIPT_URI host against allowlist to prevent SSRF attacks.
             // If the host is not trusted, return the original file path unchanged.
-            if (!$this->validateHost($urldata['host'])) {
+            if (!$this->isValidHost($urldata['host'])) {
                 return $file;
             }
 
@@ -584,15 +740,149 @@ class File
     }
 
     /**
+     * Validate an HTTP(S) URL against the configured host allowlist.
+     *
+     * Returns true only when the URL parses correctly, uses the http or
+     * https scheme, and has a non-empty host trusted by isValidHost().
+     * Returns false for invalid URLs, unsupported schemes, missing hosts,
+     * or untrusted hosts.
+     *
+     * @param string $url URL to validate.
+     */
+    public function isValidURL(string &$url): bool
+    {
+        $url = \trim($url);
+        if ($url === '') {
+            return false;
+        }
+
+        $parts = \parse_url($url);
+        if (!\is_array($parts)) {
+            return false;
+        }
+
+        $scheme = $parts['scheme'] ?? '';
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return false;
+        }
+
+        $host = $parts['host'] ?? null;
+        if (!\is_string($host)) {
+            return false;
+        }
+
+        return $this->isValidHost($host);
+    }
+
+    /**
      * Validate that the given hostname appears in the $allowedHosts allowlist.
      * Returns true when the hostname is trusted, false otherwise.
      * When the allowlist is empty (the default) every host is rejected.
      *
      * @param string $host Hostname to validate (e.g. value of $_SERVER['HTTP_HOST']).
      */
-    protected function validateHost(string $host): bool
+    protected function isValidHost(string $host): bool
     {
-        return \in_array($host, $this->allowedHosts, true);
+        return (
+            $host !== ''
+            && (\in_array('*', $this->allowedHosts, true) || \in_array($host, $this->allowedHosts, true))
+        );
+    }
+
+    /**
+     * Check whether a path is inside at least one allowed root.
+     *
+     * A plain prefix is not sufficient: '/var/www_evil' must not match
+     * '/var/www'. This helper requires exact root match or a root plus
+     * directory separator boundary.
+     *
+     * @param string        $path  Path to validate.
+     * @param array<string> $roots Allowed path prefixes.
+     */
+    protected function isPathWithinAllowedRoots(string $path, array $roots): bool
+    {
+        foreach ($roots as $allowedPath) {
+            if ($allowedPath === '') {
+                continue;
+            }
+
+            $root = \rtrim($allowedPath, '/\\');
+            if ($root === '') {
+                continue;
+            }
+
+            if ($path === $root || \str_starts_with($path, $root . '/')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Validate a local file path against the configured $allowedPaths allowlist.
+     *
+     * Returns true when:
+     * - wildcard trust ('*') is enabled, or
+     * - the normalized local path starts with one trusted allowlist prefix.
+     *
+     * Returns false for parent-directory traversal patterns ('..'),
+     * non-file schemes, and when no allowlist entry matches.
+     * When the allowlist is empty (default), every path is rejected.
+     *
+     * The 'file://' schema is added to the input $file parameter if missing.
+     *
+     * @param string $file File path to validate.
+     */
+    public function isValidFile(string &$file): bool
+    {
+        $file = \trim($file);
+        if ($file === '' || $this->hasDoubleDots($file)) {
+            return false;
+        }
+
+        if (!\str_contains($file, '://')) {
+            $file = 'file://' . $file;
+        }
+
+        if (!\str_starts_with($file, 'file://')) {
+            return false;
+        }
+
+        // remove 'file://' schema
+        $filepath = \trim(\substr($file, 7));
+
+        if ($filepath === '') {
+            return false;
+        }
+
+        if (\in_array('*', $this->allowedPaths, true)) {
+            return true;
+        }
+
+        if (!$this->isPathWithinAllowedRoots($filepath, $this->allowedPaths)) {
+            return false;
+        }
+
+        // Canonical-path check blocks symlink escapes from trusted roots.
+        // For non-existing targets, walk up to the nearest existing ancestor
+        // and validate its canonical path.
+        $realPathToCheck = $filepath;
+        while (\realpath($realPathToCheck) === false) {
+            $parentPath = \dirname($realPathToCheck);
+            if ($parentPath === $realPathToCheck || $parentPath === '.') {
+                return false;
+            }
+
+            $realPathToCheck = $parentPath;
+        }
+
+        $realPath = \realpath($realPathToCheck);
+        if ($realPath === false || !$this->isPathWithinAllowedRoots($realPath, $this->allowedPaths)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -602,22 +892,8 @@ class File
      *
      * @return boolean true if the path is relative
      */
-    public static function hasDoubleDots(string $path): bool
+    protected function hasDoubleDots(string $path): bool
     {
         return \str_contains(\str_ireplace('%2E', '.', \html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..');
-    }
-
-    /**
-     * Check if the path contains a non-allowed protocol.
-     * If a protocol is present ('://'), then only 'file://', 'http://', and 'https://' are allowed.
-     * FTP protocols are no longer supported.
-     *
-     * @param string $path path to check.
-     *
-     * @return boolean true if the protocol is not allowed.
-     */
-    public static function hasForbiddenProtocol(string $path): bool
-    {
-        return \str_contains($path, '://') && \preg_match('%^(file|https?)://%', $path) !== 1;
     }
 }
