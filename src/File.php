@@ -156,7 +156,7 @@ class File
         $this->curlopts = $curlopts;
         $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
         $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
-        $this->allowedPaths = $allowedPaths;
+        $this->allowedPaths = $this->normalizeAllowedPaths($allowedPaths);
     }
 
     /**
@@ -188,7 +188,7 @@ class File
      */
     public function setAllowedPaths(array $allowedPaths): static
     {
-        $this->allowedPaths = $allowedPaths;
+        $this->allowedPaths = $this->normalizeAllowedPaths($allowedPaths);
         return $this;
     }
 
@@ -842,12 +842,13 @@ class File
      */
     protected function isPathWithinAllowedRoots(string $path, array $roots): bool
     {
+        $path = $this->normalizePathForComparison($path);
         foreach ($roots as $allowedPath) {
             if ($allowedPath === '') {
                 continue;
             }
 
-            $root = \rtrim($allowedPath, '/\\');
+            $root = \rtrim($allowedPath, '/');
             if ($root === '') {
                 continue;
             }
@@ -858,6 +859,33 @@ class File
         }
 
         return false;
+    }
+
+    /**
+     * Normalize trusted path roots once at assignment time.
+     *
+     * @param array<string> $allowedPaths
+     *
+     * @return array<string>
+     */
+    protected function normalizeAllowedPaths(array $allowedPaths): array
+    {
+        $normalized = [];
+        foreach ($allowedPaths as $allowedPath) {
+            if ($allowedPath === '*') {
+                $normalized[] = '*';
+                continue;
+            }
+
+            $path = \rtrim($this->normalizePathForComparison($allowedPath), '/');
+            if ($path === '') {
+                continue;
+            }
+
+            $normalized[] = $path;
+        }
+
+        return \array_values(\array_unique($normalized));
     }
 
     /**
@@ -936,5 +964,26 @@ class File
     protected function hasDoubleDots(string $path): bool
     {
         return \str_contains(\str_ireplace('%2E', '.', \html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..');
+    }
+
+    /**
+     * Normalize a filesystem path for prefix comparison across platforms.
+     */
+    protected function normalizePathForComparison(string $path): string
+    {
+        $path = \trim(\str_replace('\\', '/', $path));
+        if ($path === '') {
+            return '';
+        }
+
+        if (\preg_match('/^[A-Za-z]:$/', $path) === 1) {
+            return \strtolower($path) . '/';
+        }
+
+        if (\preg_match('/^[A-Za-z]:\//', $path) === 1) {
+            $path = \strtolower($path[0]) . \substr($path, 1);
+        }
+
+        return $path;
     }
 }

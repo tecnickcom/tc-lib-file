@@ -763,6 +763,53 @@ class FileTest extends TestUtil
         $this->assertTrue($testObj->isPathWithinAllowedRootsProxy('/var/www/app/file.txt', ['', '/', '/var/www']));
     }
 
+    public function testAllowedPathsAreNormalizedInConstructorForWindowsPaths(): void
+    {
+        $testObj = new class([], 52_428_800, [], null, null, [' C:\\Trusted\\Base\\ ', 'D:', '']) extends
+            \Com\Tecnick\File\File {
+            public function isPathAllowedProxy(string $path): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $this->allowedPaths);
+            }
+
+            /**
+             * @return array<int, string>
+             */
+            public function getAllowedPathsProxy(): array
+            {
+                return \array_values($this->allowedPaths);
+            }
+        };
+
+        $this->assertSame(['c:/Trusted/Base', 'd:'], $testObj->getAllowedPathsProxy());
+        $this->assertTrue($testObj->isPathAllowedProxy('c:/Trusted/Base/file.txt'));
+        $this->assertTrue($testObj->isPathAllowedProxy('d:/folder/file.txt'));
+    }
+
+    public function testAllowedPathsAreNormalizedInSetterForWindowsPaths(): void
+    {
+        $testObj = new class() extends \Com\Tecnick\File\File {
+            public function isPathAllowedProxy(string $path): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $this->allowedPaths);
+            }
+
+            /**
+             * @return array<int, string>
+             */
+            public function getAllowedPathsProxy(): array
+            {
+                return \array_values($this->allowedPaths);
+            }
+        };
+
+        $testObj->setAllowedPaths([' E:\\Share\\Root\\ ', 'E:\\Share\\Root\\']);
+
+        $this->assertSame(['e:/Share/Root'], $testObj->getAllowedPathsProxy());
+        $this->assertTrue($testObj->isPathAllowedProxy('e:/Share/Root/file.txt'));
+        $this->assertFalse($testObj->isPathAllowedProxy('e:/Share/Root_evil/file.txt'));
+    }
+
     public function testValidatePathReturnsFalseWhenNearestParentCannotBeResolved(): void
     {
         $testObj = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['foo']);
