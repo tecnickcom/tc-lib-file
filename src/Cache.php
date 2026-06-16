@@ -18,6 +18,9 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\File;
 
+use Com\Tecnick\File\Exception as FileException;
+use Random\RandomException;
+
 /**
  * Com\Tecnick\Pdf\File\Cache
  *
@@ -35,9 +38,12 @@ namespace Com\Tecnick\File;
 class Cache
 {
     /**
+     * Whether this is a Windows machine
+     */
+    protected bool $isWindows;
+
+    /**
      * Cache path (per-instance)
-     *
-     * @var string
      */
     protected string $path = '';
 
@@ -50,17 +56,20 @@ class Cache
      * Set the file prefix (common name)
      *
      * @param ?string $prefix Common prefix to be used for all cache files
+     *
+     * @throws FileException
+     * @throws RandomException
      */
     public function __construct(?string $prefix = null)
     {
+        $this->isWindows = \PHP_OS_FAMILY === 'Windows';
+
         $this->defineSystemCachePath();
         $this->setCachePath();
-        if ($prefix === null) {
-            $prefix = \rtrim(
-                \base64_encode(\pack('H*', \md5(\uniqid((string) \mt_rand(0, \mt_getrandmax()), true)))),
-                '=',
-            );
-        }
+        $prefix ??= \rtrim(
+            \base64_encode(\pack('H*', \md5(\uniqid((string) \random_int(0, \PHP_INT_MAX), true)))),
+            '=',
+        );
 
         $safePrefix = \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) ?? '';
         $this->prefix = '_' . $safePrefix . '_';
@@ -102,27 +111,80 @@ class Cache
      * Throws an exception when tempnam() fails, consistent with the rest of the library.
      *
      * @param string $type Type of file
-     * @param string $key  File key (used to retrieve file from cache)
+     * @param string $key File key (used to retrieve file from cache)
      *
      * @return string Temporary filename
      *
-     * @throws \Com\Tecnick\File\Exception when a temporary file cannot be created.
+     * @throws FileException
+     * @throws RandomException
      */
     public function getNewFileName(string $type = 'tmp', string $key = '0'): string
     {
-        $file = \tempnam($this->path, $this->prefix . $type . '_' . $key . '_');
-        if ($file === false) {
-            throw new Exception('unable to create a temporary file in: ' . $this->path);
+        if (!$this->isWindows) {
+            $file = \tempnam($this->path, $this->prefix . $type . '_' . $key . '_');
+            if ($file === false) {
+                throw new FileException('unable to create a temporary file in: ' . $this->path);
+            }
+            return $file;
         }
 
-        return $file;
+        // Windows: tempnam() truncates the prefix to 3 chars, collapsing the
+        // type/key keying. Reimplement with atomic create-exclusive instead.
+        return $this->createWindowsTempFile($type, $key);
     }
 
+    /**
+     * Returns a Windows specific temporary filename for caching files.
+     * Throws an exception when unable to create a temporary file,
+     * consistent with the rest of the library.
+     *
+     * @param string $type Type of file
+     * @param string $key File key (used to retrieve file from cache)
+     *
+     * @return string Temporary filename
+     *
+     * @throws FileException
+     * @throws RandomException
+     */
+    private function createWindowsTempFile(string $type = 'tmp', string $key = '0'): string
+    {
+        // Windows MAX_PATH is 260 incl. the NUL terminator, so the usable path
+        // length is 259. We budget for the full final name: $base + hex + ".tmp"
+        // This assumes non-long-path-aware PHP, which is the stock CLI default.
+        $maxPathLength = 259;
+        // suffix = '.tmp'
+        $suffixLength = 4;
+        // at least 1 random byte (2 hex characters)
+        $minHexLength = 2;
+
+        $base = $this->path . $this->prefix . "{$type}_{$key}_";
+
+        // Room left for the random hex segment after base + ".tmp".
+        $entropyBudget = $maxPathLength - \strlen($base) - $suffixLength;
+
+        if ($entropyBudget < $minHexLength) {
+            throw new FileException("Cache filepath exceeds maximum length of {$maxPathLength} on Windows.");
+        }
+
+        // Cap at 15 bytes (30 hex chars); use as much of the remaining budget as fits.
+        $numBytes = \max(1, \min(15, \intdiv($entropyBudget, 2)));
+
+        for ($attempt = 0; $attempt < 10; ++$attempt) {
+            $filepath = $base . \bin2hex(\random_bytes($numBytes)) . '.tmp';
+            $handle = @\fopen($filepath, 'x');
+            if ($handle !== false) {
+                \fclose($handle);
+                return $filepath;
+            }
+        }
+
+        throw new FileException("Unable to create a temporary file in: {$this->path}");
+    }
     /**
      * Delete cached files
      *
      * @param ?string $type Type of files to delete
-     * @param ?string $key  Specific file key to delete
+     * @param ?string $key Specific file key to delete
      */
     public function delete(?string $type = null, ?string $key = null): void
     {
@@ -137,13 +199,14 @@ class Cache
             }
         }
 
-        $path .= '*';
-        $files = \glob($path);
-        if ($files === [] || $files === false) {
+        $files = \glob($path . '*');
+        if (!$files) {
             return;
         }
 
-        \array_map('unlink', $files);
+        foreach ($files as $file) {
+            \unlink($file);
+        }
     }
 
     /**
@@ -178,7 +241,7 @@ class Cache
         }
 
         $kPathCache = \ini_get('upload_tmp_dir');
-        if ($kPathCache === false || $kPathCache === '') {
+        if (!$kPathCache) {
             $kPathCache = \sys_get_temp_dir();
         }
         \define('K_PATH_CACHE', $this->normalizePath($kPathCache));

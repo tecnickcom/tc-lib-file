@@ -48,16 +48,16 @@ class Dir
                 $dir = '';
             }
 
-            if (\is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
-                $dir = $dir . DIRECTORY_SEPARATOR . $name;
+            if (\is_writable($dir . \DIRECTORY_SEPARATOR . $name)) {
+                $dir .= \DIRECTORY_SEPARATOR . $name;
                 break;
             }
 
             $dir = \dirname($dir);
         }
 
-        if (\substr($dir, -1) !== DIRECTORY_SEPARATOR) {
-            $dir .= DIRECTORY_SEPARATOR;
+        if (\substr($dir, -1) !== \DIRECTORY_SEPARATOR) {
+            $dir .= \DIRECTORY_SEPARATOR;
         }
 
         return $dir;

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /**
  * DirTest.php
  *
@@ -16,7 +18,9 @@
 
 namespace Test;
 
+use Com\Tecnick\File\Dir;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
 
 /**
  * File Color class test
@@ -31,11 +35,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class DirTest extends TestUtil
 {
-    protected function getTestObject(): \Com\Tecnick\File\Dir
+    protected function getTestObject(): Dir
     {
-        return new \Com\Tecnick\File\Dir();
+        return new Dir();
     }
 
+    #[Test]
     #[DataProvider('getAltFilePathsDataProvider')]
     public function testGetAltFilePaths(string $name, string $expected): void
     {
@@ -49,6 +54,15 @@ class DirTest extends TestUtil
      */
     public static function getAltFilePathsDataProvider(): array
     {
-        return [['', '/src/'], ['missing', '/'], ['src', '/src/']];
+        $paths = [['', '/src/'], ['missing', '/'], ['src', '/src/']];
+
+        // Handle Windows directory separators
+        if (\DIRECTORY_SEPARATOR !== '/') {
+            foreach ($paths as &$path) {
+                $path[1] = \str_replace('/', \preg_quote(\DIRECTORY_SEPARATOR, '#'), $path[1]);
+            }
+        }
+
+        return $paths;
     }
 }
