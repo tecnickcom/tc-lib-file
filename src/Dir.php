@@ -43,13 +43,16 @@ class Dir
      */
     public function findParentDir(string $name, string $dir = __DIR__): string
     {
+        $allowedBases = $this->getOpenBasedirPaths();
+
         while ($dir !== '') {
             if ($dir === \dirname($dir)) {
                 $dir = '';
             }
 
-            if (\is_writable($dir . DIRECTORY_SEPARATOR . $name)) {
-                $dir = $dir . DIRECTORY_SEPARATOR . $name;
+            $candidate = $dir . DIRECTORY_SEPARATOR . $name;
+            if ($this->isPathAllowed($candidate, $allowedBases) && \is_writable($candidate)) {
+                $dir = $candidate;
                 break;
             }
 
@@ -61,5 +64,55 @@ class Dir
         }
 
         return $dir;
+    }
+
+    /**
+     * Returns the list of directories allowed by the active open_basedir restriction.
+     *
+     * An empty array means that no restriction is in effect.
+     *
+     * @return array<string> Allowed base directories without trailing separator.
+     */
+    private function getOpenBasedirPaths(): array
+    {
+        $openBasedir = \ini_get('open_basedir');
+        if ($openBasedir === false || $openBasedir === '') {
+            return [];
+        }
+
+        $paths = [];
+        foreach (\explode(PATH_SEPARATOR, $openBasedir) as $path) {
+            $path = \rtrim($path, '/\\');
+            if ($path !== '') {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Tells whether the given path can be safely probed under the active open_basedir restriction.
+     *
+     * Probing a path outside the allowed list raises an open_basedir E_WARNING (which can
+     * corrupt the output stream or be promoted to an exception by the application error handler),
+     * so such paths must be skipped. When no restriction is in effect every path is allowed.
+     *
+     * @param string        $path         Path to check.
+     * @param array<string> $allowedBases Allowed base directories (empty when unrestricted).
+     */
+    private function isPathAllowed(string $path, array $allowedBases): bool
+    {
+        if ($allowedBases === []) {
+            return true;
+        }
+
+        foreach ($allowedBases as $base) {
+            if ($path === $base || \str_starts_with($path, $base . DIRECTORY_SEPARATOR)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
