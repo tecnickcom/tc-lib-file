@@ -125,6 +125,61 @@ $file = new \Com\Tecnick\File\File(
 
 ---
 
+## Platform notes
+
+The library runs on Linux, macOS, and Windows. Path validation adapts to the
+host filesystem; a few platform behaviors are worth knowing.
+
+### Path case-sensitivity
+
+Allowlist matching follows the filesystem's case rules:
+
+- **Linux** — case-sensitive.
+- **Windows** — case-insensitive.
+- **macOS** — per-volume: the default APFS/HFS+ volume is case-insensitive, but
+  case-sensitive volumes exist. The library probes the actual volume and falls
+  back to case-insensitive when it cannot.
+
+If auto-detection is wrong for your deployment (for example, data on a
+case-sensitive macOS volume, or a case-insensitive mount on Linux), set it
+explicitly:
+
+```php
+$file = new \Com\Tecnick\File\File(
+	allowedPaths: ['/srv/my-app/data'],
+	caseSensitivePaths: true, // or false; null (default) = auto-detect
+);
+
+// or at runtime:
+$file->setCaseSensitivePaths(true);
+```
+
+The same override makes the behavior testable on any host (the CI runs on Linux
+only — Windows and macOS are validated locally).
+
+### Unicode (macOS)
+
+Default macOS volumes are normalization-insensitive (`é` composed vs. decomposed
+name the same file). When `ext-intl` is installed, the library normalizes paths
+to NFC before comparison so the allowlist matches consistently; without
+`ext-intl` it degrades to a byte comparison.
+
+### Binary reads
+
+`fopenLocal()` forces the binary (`b`) stream flag when absent, so byte-level
+reads are not altered by Windows text-mode CRLF translation. POSIX systems are
+unaffected.
+
+### Windows known limitations
+
+These inputs are intentionally **not** treated as trusted/canonical and are not
+specially expanded before allowlist matching: 8.3 short names (`PROGRA~1`),
+Alternate Data Streams (`file.txt:stream`, `::$DATA`), trailing dots/spaces, and
+reserved device names (`CON`, `NUL`, ...). UNC paths (`\\server\share`) are
+matched only when explicitly allowlisted — note the network-access implication.
+
+---
+
 ## Development
 
 ```bash

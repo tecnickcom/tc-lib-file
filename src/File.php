@@ -129,6 +129,21 @@ class File
     protected int $maxRemoteSize = 52_428_800;
 
     /**
+     * Explicit override for filesystem path case-sensitivity.
+     *
+     * null  = auto-detect (Windows: case-insensitive; macOS: per-volume probe
+     *         with case-insensitive fallback; Linux: case-sensitive).
+     * true  = treat paths as case-sensitive (e.g. case-sensitive volume).
+     * false = treat paths as case-insensitive.
+     *
+     * Exposed so the OS-dependent behavior can be exercised on any host,
+     * including the Linux-only CI runner.
+     *
+     * @var bool|null
+     */
+    protected ?bool $caseSensitiveOverride = null;
+
+    /**
      * Initialize the File object.
      *
      * @param array<string>                    $allowedHosts    Allowlist of trusted hostnames.
@@ -142,6 +157,9 @@ class File
      *                                                          If not provided, CURLOPT_FIXED is used.
      * @param array<string>                    $allowedPaths    Allowlist of trusted file paths.
      *                                                          Defaults to an empty array (no internal path trusted).
+     * @param bool|null                        $caseSensitivePaths Override for path case-sensitivity.
+     *                                                          null = auto-detect per platform/volume (default),
+     *                                                          true = case-sensitive, false = case-insensitive.
      */
     public function __construct(
         array $allowedHosts = [],
@@ -150,12 +168,14 @@ class File
         ?array $defaultCurlOpts = null,
         ?array $fixedCurlOpts = null,
         array $allowedPaths = [],
+        ?bool $caseSensitivePaths = null,
     ) {
         $this->allowedHosts = $allowedHosts;
         $this->maxRemoteSize = $maxRemoteSize;
         $this->curlopts = $curlopts;
         $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
         $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
+        $this->caseSensitiveOverride = $caseSensitivePaths;
         $this->allowedPaths = $this->normalizeAllowedPaths($allowedPaths);
     }
 
@@ -193,6 +213,18 @@ class File
     }
 
     /**
+     * Override how path case-sensitivity is determined for allowlist matching.
+     *
+     * @param bool|null $caseSensitivePaths null = auto-detect per platform/volume,
+     *                                      true = case-sensitive, false = case-insensitive.
+     */
+    public function setCaseSensitivePaths(?bool $caseSensitivePaths): static
+    {
+        $this->caseSensitiveOverride = $caseSensitivePaths;
+        return $this;
+    }
+
+    /**
      * Set the maximum size (in bytes) for remote file reads.
      *
      * @param int $maxRemoteSize Maximum allowed bytes.
@@ -216,6 +248,8 @@ class File
      *
      * @param string $file Name of the file to open.
      * @param string $mode The fopen mode parameter specifies the type of access you require to the stream.
+     *                     The binary flag ('b') is forced when absent so byte-level reads are not corrupted
+     *                     by text-mode CRLF translation on Windows (no-op on POSIX systems).
      *
      * @return resource Returns a file pointer resource on success.
      *
@@ -227,7 +261,12 @@ class File
             throw new FileException('invalid file');
         }
 
-        $handler = $this->withoutPhpWarnings(static fn() => \fopen($file, $mode));
+        if (!\str_contains($mode, 'b')) {
+            $mode .= 'b';
+        }
+
+        $path = $this->stripFileScheme($file);
+        $handler = $this->withoutPhpWarnings(static fn() => \fopen($path, $mode));
         if ($handler === false) {
             throw new FileException('unable to open the file: ' . $file);
         }
@@ -359,7 +398,29 @@ class File
             return false;
         }
 
-        return $this->withoutPhpWarnings(static fn() => \file_get_contents($file));
+        $path = $this->stripFileScheme($file);
+        return $this->withoutPhpWarnings(static fn() => \file_get_contents($path));
+    }
+
+    /**
+     * Return the plain filesystem path for a validated local file reference.
+     *
+     * isValidFile() adds a 'file://' scheme to its by-reference argument. That
+     * scheme must be removed before the value reaches fopen()/file_get_contents():
+     * PHP parses the segment after 'file://' as the URI authority, so a Windows
+     * drive path would become 'file://C:\...' (host "C:") and fail to open,
+     * whereas the bare path opens natively on every platform. On POSIX the bare
+     * path behaves identically to the 'file:///...' form.
+     *
+     * The result is trimmed to match exactly the value isValidFile() validated
+     * (it checks trim(substr($file, 7))), so the path opened equals the path
+     * checked.
+     *
+     * @param string $file Local file reference, optionally 'file://'-prefixed.
+     */
+    protected function stripFileScheme(string $file): string
+    {
+        return \trim(\str_starts_with($file, 'file://') ? \substr($file, 7) : $file);
     }
 
     /**
@@ -667,11 +728,26 @@ class File
         ) {
             $findroot = \strpos($file, $documentRoot);
             if ($findroot === false || $findroot > 1) {
-                $file = \htmlspecialchars_decode(\urldecode($documentRoot . $file));
+                $file = $this->normalizeLocalSeparators(\htmlspecialchars_decode(\urldecode($documentRoot . $file)));
             }
         }
 
         return $file;
+    }
+
+    /**
+     * Collapse mixed directory separators to '/' in a constructed local path.
+     *
+     * Joining a Windows DOCUMENT_ROOT (e.g. 'C:\inetpub\wwwroot') with a
+     * URL-style path yields mixed 'C:\inetpub\wwwroot/path' forms; PHP accepts
+     * forward slashes on Windows, so collapsing to '/' gives a consistent path.
+     * No-op on POSIX systems where paths already use '/'.
+     *
+     * @param string $path Constructed local path.
+     */
+    protected function normalizeLocalSeparators(string $path): string
+    {
+        return \str_replace('\\', '/', $path);
     }
 
     /**
@@ -737,7 +813,7 @@ class File
         if (\str_starts_with($url, $host)) {
             // convert URL to full server path
             $tmp = \str_replace($host, $documentRoot, $url);
-            return \htmlspecialchars_decode(\urldecode($tmp));
+            return $this->normalizeLocalSeparators(\htmlspecialchars_decode(\urldecode($tmp)));
         }
 
         return $url;
@@ -843,6 +919,9 @@ class File
     protected function isPathWithinAllowedRoots(string $path, array $roots): bool
     {
         $path = $this->normalizePathForComparison($path);
+        $caseInsensitive = $this->caseInsensitiveFs($path);
+        $cmpPath = $caseInsensitive ? \strtolower($path) : $path;
+
         foreach ($roots as $allowedPath) {
             if ($allowedPath === '') {
                 continue;
@@ -853,12 +932,118 @@ class File
                 continue;
             }
 
-            if ($path === $root || \str_starts_with($path, $root . '/')) {
+            $cmpRoot = $caseInsensitive ? \strtolower($root) : $root;
+            if ($cmpPath === $cmpRoot || \str_starts_with($cmpPath, $cmpRoot . '/')) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Decide whether filesystem path comparison should be case-insensitive.
+     *
+     * Honors the explicit override when set; otherwise auto-detects from the
+     * platform and (on macOS) the specific volume of $hint.
+     *
+     * @param string $hint A path on the volume being compared, used to probe.
+     */
+    protected function caseInsensitiveFs(string $hint): bool
+    {
+        if ($this->caseSensitiveOverride !== null) {
+            return !$this->caseSensitiveOverride;
+        }
+
+        return $this->caseInsensitiveDefault(\PHP_OS_FAMILY, $hint);
+    }
+
+    /**
+     * Map an OS family to a default case-sensitivity decision.
+     *
+     * Split out and parameterized on $osFamily so every branch can be exercised
+     * from a unit test without running on the matching host (Linux-only CI).
+     *
+     * @param string $osFamily Value of PHP_OS_FAMILY (or a test-injected value).
+     * @param string $hint     A path on the volume being compared, used to probe.
+     */
+    protected function caseInsensitiveDefault(string $osFamily, string $hint): bool
+    {
+        return match ($osFamily) {
+            'Windows' => true,
+            'Darwin' => $this->probeCaseInsensitive($hint) ?? true,
+            default => $this->probeCaseInsensitive($hint) ?? false,
+        };
+    }
+
+    /**
+     * Probe whether the volume holding $hint is case-insensitive.
+     *
+     * Toggles the case of the last ASCII letter of the resolved path and checks
+     * whether the variant resolves to the same canonical path. Returns null when
+     * the path cannot be resolved (so the caller applies its platform default)
+     * or when there is no letter to toggle.
+     *
+     * @param string $hint Path to probe.
+     */
+    protected function probeCaseInsensitive(string $hint): ?bool
+    {
+        $ref = \realpath($hint);
+        if ($ref === false) {
+            return null;
+        }
+
+        $flipped = $this->flipLastAlphaCase($ref);
+        if ($flipped === $ref) {
+            return null;
+        }
+
+        $flippedReal = \realpath($flipped);
+        return $flippedReal !== false && $flippedReal === $ref;
+    }
+
+    /**
+     * Return $str with the case of its last ASCII letter toggled.
+     * Returns the string unchanged when it contains no ASCII letter.
+     *
+     * @param string $str Input string.
+     */
+    protected function flipLastAlphaCase(string $str): string
+    {
+        for ($i = \strlen($str) - 1; $i >= 0; $i--) {
+            $chr = $str[$i];
+            if ($chr >= 'a' && $chr <= 'z') {
+                return \substr($str, 0, $i) . \strtoupper($chr) . \substr($str, $i + 1);
+            }
+
+            if ($chr >= 'A' && $chr <= 'Z') {
+                return \substr($str, 0, $i) . \strtolower($chr) . \substr($str, $i + 1);
+            }
+        }
+
+        return $str;
+    }
+
+    /**
+     * Normalize a string to Unicode NFC form when ext-intl is available.
+     *
+     * Default macOS volumes are normalization-insensitive, so an NFC path and
+     * its NFD form name the same file; folding both comparison operands to NFC
+     * keeps the allowlist match consistent. Degrades to a no-op (documented
+     * limitation) when the Normalizer class is unavailable.
+     *
+     * @param string $str Input string.
+     */
+    protected function normalizeUnicode(string $str): string
+    {
+        if (\class_exists(\Normalizer::class)) {
+            $normalized = \Normalizer::normalize($str, \Normalizer::FORM_C);
+            if (\is_string($normalized)) {
+                return $normalized;
+            }
+        }
+
+        return $str;
     }
 
     /**
@@ -925,6 +1110,11 @@ class File
             return false;
         }
 
+        // A validated local path must not act as a PHP stream wrapper
+        if (\str_contains($filepath, '://') || \preg_match('#^[a-zA-Z][a-zA-Z0-9+.\-]+:#', $filepath) === 1) {
+            return false;
+        }
+
         if (\in_array('*', $this->allowedPaths, true)) {
             return true;
         }
@@ -975,6 +1165,8 @@ class File
         if ($path === '') {
             return '';
         }
+
+        $path = $this->normalizeUnicode($path);
 
         if (\preg_match('/^[A-Za-z]:$/', $path) === 1) {
             return \strtolower($path) . '/';

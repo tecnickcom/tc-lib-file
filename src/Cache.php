@@ -35,6 +35,15 @@ namespace Com\Tecnick\File;
 class Cache
 {
     /**
+     * Pattern matching characters that are not allowed in cache filename tokens
+     * (prefix, type, key). Stripping them keeps generated names valid on every
+     * platform (notably Windows) and prevents glob metacharacters from reaching
+     * delete()/deleteOlderThan(). getNewFileName() and delete() must use the
+     * same pattern so the prefix-based glob matches the files actually created.
+     */
+    private const SAFE_NAME_PATTERN = '/[^a-zA-Z0-9_\-]/';
+
+    /**
      * Cache path (per-instance)
      *
      * @var string
@@ -55,14 +64,12 @@ class Cache
     {
         $this->defineSystemCachePath();
         $this->setCachePath();
-        if ($prefix === null) {
-            $prefix = \rtrim(
-                \base64_encode(\pack('H*', \md5(\uniqid((string) \mt_rand(0, \mt_getrandmax()), true)))),
-                '=',
-            );
-        }
+        $prefix ??= \rtrim(
+            \base64_encode(\pack('H*', \md5(\uniqid((string) \mt_rand(0, \mt_getrandmax()), true)))),
+            '=',
+        );
 
-        $safePrefix = \preg_replace('/[^a-zA-Z0-9_\-]/', '', \strtr($prefix, '+/', '-_')) ?? '';
+        $safePrefix = \preg_replace(self::SAFE_NAME_PATTERN, '', \strtr($prefix, '+/', '-_')) ?? '';
         $this->prefix = '_' . $safePrefix . '_';
     }
 
@@ -110,12 +117,34 @@ class Cache
      */
     public function getNewFileName(string $type = 'tmp', string $key = '0'): string
     {
-        $file = \tempnam($this->path, $this->prefix . $type . '_' . $key . '_');
+        // Sanitize so the generated name matches the patterns used by delete()
+        // and contains no characters that are invalid in Windows filenames.
+        $safeType = \preg_replace(self::SAFE_NAME_PATTERN, '', $type) ?? '';
+        $safeKey = \preg_replace(self::SAFE_NAME_PATTERN, '', $key) ?? '';
+
+        // tempnam() atomically creates a unique, private file, but on Windows it
+        // keeps only the first three characters of the prefix. Create the file
+        // with tempnam(), then rename it to a name carrying the full prefix so
+        // the prefix-based glob in delete()/deleteOlderThan() works on every
+        // platform. The rename preserves tempnam()'s restrictive permissions.
+        $file = \tempnam($this->path, $this->prefix);
         if ($file === false) {
             throw new Exception('unable to create a temporary file in: ' . $this->path);
         }
 
-        return $file;
+        $unique = \str_replace('.', '', \uniqid('', true));
+        $target = $this->path . $this->prefix . $safeType . '_' . $safeKey . '_' . $unique;
+
+        $renamed = false;
+        \set_error_handler(static fn(): bool => true, E_WARNING);
+
+        try {
+            $renamed = \rename($file, $target);
+        } finally {
+            \restore_error_handler();
+        }
+
+        return $renamed ? $target : $file;
     }
 
     /**
@@ -126,8 +155,8 @@ class Cache
      */
     public function delete(?string $type = null, ?string $key = null): void
     {
-        $safeType = $type !== null ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $type) : null;
-        $safeKey = $key !== null ? \preg_replace('/[^a-zA-Z0-9_\-]/', '', $key) : null;
+        $safeType = $type !== null ? \preg_replace(self::SAFE_NAME_PATTERN, '', $type) : null;
+        $safeKey = $key !== null ? \preg_replace(self::SAFE_NAME_PATTERN, '', $key) : null;
 
         $path = $this->path . $this->prefix;
         if ($safeType !== null) {
@@ -196,8 +225,8 @@ class Cache
             return '';
         }
 
-        if (!\str_ends_with($rpath, '/')) {
-            $rpath .= '/';
+        if (!\str_ends_with($rpath, \DIRECTORY_SEPARATOR)) {
+            $rpath .= \DIRECTORY_SEPARATOR;
         }
 
         return $rpath;

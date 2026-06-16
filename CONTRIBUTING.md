@@ -160,6 +160,19 @@ Requirements for contributions:
 
 Coverage reports are generated in `target/coverage/`.
 
+### Cross-platform behavior
+
+Continuous integration runs on **Linux only**. Windows- and macOS-specific
+behavior (path case-sensitivity, Unicode normalization, binary read mode) is
+therefore exercised on the Linux runner through the injectable
+`caseSensitivePaths` override and platform-parameterized helpers, and validated
+manually on those operating systems. When changing path-handling code, keep it
+drivable from a Linux test — assert both case-sensitive and case-insensitive
+modes via the override rather than relying on the host OS — and avoid hardcoding
+platform-specific paths (use `sys_get_temp_dir()` and `DIRECTORY_SEPARATOR`, and
+compare `realpath()` on both sides). See the "Platform notes" section of the
+[README](README.md) for the supported behaviors.
+
 ---
 
 ## Pull Request Guidelines

@@ -1204,4 +1204,314 @@ class FileTest extends TestUtil
         $result = $file->getUrlData('http://127.0.0.1:1/unreachable.txt');
         $this->assertFalse($result);
     }
+
+    // -------------------------------------------------------------------------
+    // Cross-platform: case-sensitivity, binary mode, Unicode, separators
+    // -------------------------------------------------------------------------
+
+    public function testAllowlistIsCaseInsensitiveWhenOverrideOff(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function isPathAllowedProxy(string $path): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $this->allowedPaths);
+            }
+        };
+        $proxy->setAllowedPaths(['/srv/App', 'C:\\Trusted\\Base']);
+        $proxy->setCaseSensitivePaths(false); // force case-insensitive matching
+
+        $this->assertTrue($proxy->isPathAllowedProxy('/srv/app/file.txt'));
+        $this->assertTrue($proxy->isPathAllowedProxy('/SRV/APP/file.txt'));
+        $this->assertTrue($proxy->isPathAllowedProxy('c:/trusted/base/file.txt'));
+        $this->assertTrue($proxy->isPathAllowedProxy('C:/TRUSTED/BASE/file.txt'));
+        // still rejects a genuinely different sibling root
+        $this->assertFalse($proxy->isPathAllowedProxy('/srv/app_evil/file.txt'));
+    }
+
+    public function testAllowlistIsCaseSensitiveWhenOverrideOn(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function isPathAllowedProxy(string $path): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $this->allowedPaths);
+            }
+        };
+        $proxy->setAllowedPaths(['/srv/App']);
+        $proxy->setCaseSensitivePaths(true); // force case-sensitive matching
+
+        $this->assertTrue($proxy->isPathAllowedProxy('/srv/App/file.txt'));
+        $this->assertFalse($proxy->isPathAllowedProxy('/srv/app/file.txt'));
+    }
+
+    public function testAllowlistDefaultIsCaseSensitiveOnLinux(): void
+    {
+        if (\PHP_OS_FAMILY !== 'Linux') {
+            $this->markTestSkipped('Linux-specific default behavior');
+        }
+
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function isPathAllowedProxy(string $path): bool
+            {
+                return $this->isPathWithinAllowedRoots($path, $this->allowedPaths);
+            }
+        };
+        $proxy->setAllowedPaths(['/srv/App']); // override left null -> auto-detect
+
+        $this->assertTrue($proxy->isPathAllowedProxy('/srv/App/file.txt'));
+        $this->assertFalse($proxy->isPathAllowedProxy('/srv/app/file.txt'));
+    }
+
+    public function testCaseInsensitiveDefaultPerOsFamily(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public ?bool $probeResult = null;
+
+            public function caseInsensitiveDefaultProxy(string $osFamily, string $hint): bool
+            {
+                return $this->caseInsensitiveDefault($osFamily, $hint);
+            }
+
+            protected function probeCaseInsensitive(string $hint): ?bool
+            {
+                return $this->probeResult;
+            }
+        };
+
+        // Windows is always case-insensitive, regardless of the probe.
+        $proxy->probeResult = null;
+        $this->assertTrue($proxy->caseInsensitiveDefaultProxy('Windows', '/whatever'));
+
+        // macOS: probe decides; null falls back to case-insensitive.
+        $proxy->probeResult = null;
+        $this->assertTrue($proxy->caseInsensitiveDefaultProxy('Darwin', '/whatever'));
+        $proxy->probeResult = true;
+        $this->assertTrue($proxy->caseInsensitiveDefaultProxy('Darwin', '/whatever'));
+        $proxy->probeResult = false;
+        $this->assertFalse($proxy->caseInsensitiveDefaultProxy('Darwin', '/whatever'));
+
+        // Linux/other: probe decides; null falls back to case-sensitive.
+        $proxy->probeResult = null;
+        $this->assertFalse($proxy->caseInsensitiveDefaultProxy('Linux', '/whatever'));
+        $proxy->probeResult = true;
+        $this->assertTrue($proxy->caseInsensitiveDefaultProxy('Linux', '/whatever'));
+    }
+
+    public function testProbeCaseInsensitive(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function probeProxy(string $hint): ?bool
+            {
+                return $this->probeCaseInsensitive($hint);
+            }
+        };
+
+        // Unresolvable path -> null (caller applies platform default).
+        $missing = \sys_get_temp_dir() . '/tc-nope-' . \uniqid('', true);
+        $this->assertNull($proxy->probeProxy($missing));
+
+        // Existing path -> concrete bool reflecting the host filesystem.
+        $result = $proxy->probeProxy(__FILE__);
+        $this->assertIsBool($result);
+        if (\PHP_OS_FAMILY === 'Linux') {
+            $this->assertFalse($result);
+        }
+
+        // When the resolved path has no letter to toggle, the probe cannot
+        // decide and returns null.
+        $noFlip = new class() extends \Com\Tecnick\File\File {
+            public function probeProxy(string $hint): ?bool
+            {
+                return $this->probeCaseInsensitive($hint);
+            }
+
+            protected function flipLastAlphaCase(string $str): string
+            {
+                return $str; // simulate a path with no ASCII letter
+            }
+        };
+        $this->assertNull($noFlip->probeProxy(__FILE__));
+    }
+
+    public function testFlipLastAlphaCase(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function flipProxy(string $str): string
+            {
+                return $this->flipLastAlphaCase($str);
+            }
+        };
+
+        $this->assertSame('baR', $proxy->flipProxy('bar'));
+        $this->assertSame('bar', $proxy->flipProxy('baR'));
+        $this->assertSame('foo.txT', $proxy->flipProxy('foo.txt'));
+        $this->assertSame('12.34', $proxy->flipProxy('12.34')); // no letter to flip
+    }
+
+    public function testNormalizeUnicodeFoldsNfdToNfc(): void
+    {
+        if (!\class_exists(\Normalizer::class)) {
+            $this->markTestSkipped('ext-intl is not available');
+        }
+
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function normalizeUnicodeProxy(string $str): string
+            {
+                return $this->normalizeUnicode($str);
+            }
+        };
+
+        $nfc = "caf\u{00E9}"; // é as a single precomposed code point
+        $nfd = "cafe\u{0301}"; // e + combining acute accent
+
+        $this->assertNotSame($nfc, $nfd, 'sanity: the two forms differ as byte strings');
+        $this->assertSame($nfc, $proxy->normalizeUnicodeProxy($nfd));
+        $this->assertSame($nfc, $proxy->normalizeUnicodeProxy($nfc));
+
+        // Invalid UTF-8 makes Normalizer::normalize() return false; the method
+        // must degrade to returning the input unchanged.
+        $invalid = "\xff\xfe";
+        $this->assertSame($invalid, $proxy->normalizeUnicodeProxy($invalid));
+    }
+
+    public function testNormalizeLocalSeparators(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function sepProxy(string $path): string
+            {
+                return $this->normalizeLocalSeparators($path);
+            }
+        };
+
+        $this->assertSame('C:/inetpub/wwwroot/path', $proxy->sepProxy('C:\\inetpub\\wwwroot/path'));
+        $this->assertSame('/var/www/x', $proxy->sepProxy('/var/www/x'));
+    }
+
+    public function testGetAltLocalUrlPathNormalizesWindowsDocumentRoot(): void
+    {
+        $proxy = new class(['localhost']) extends \Com\Tecnick\File\File {
+            public function altLocalUrlPathProxy(string $file): string
+            {
+                return $this->getAltLocalUrlPath($file);
+            }
+        };
+
+        $previous = $_SERVER['DOCUMENT_ROOT'] ?? null;
+        $_SERVER['DOCUMENT_ROOT'] = 'C:\\inetpub\\wwwroot';
+        try {
+            $this->assertSame('C:/inetpub/wwwroot/path/test.txt', $proxy->altLocalUrlPathProxy('/path/test.txt'));
+        } finally {
+            if ($previous === null) {
+                unset($_SERVER['DOCUMENT_ROOT']);
+            } else {
+                $_SERVER['DOCUMENT_ROOT'] = $previous;
+            }
+        }
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testFopenLocalForcesBinaryMode(): void
+    {
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tcb');
+        $this->assertIsString($tmp);
+        \file_put_contents($tmp, 'data');
+
+        // Wildcard allowlist keeps the focus on the mode handling.
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        try {
+            $handle = $file->fopenLocal($tmp, 'r');
+            $meta = \stream_get_meta_data($handle);
+            $this->assertSame('rb', $meta['mode']);
+            \fclose($handle);
+
+            // An explicit binary mode is preserved (not doubled).
+            $handle = $file->fopenLocal($tmp, 'rb');
+            $meta = \stream_get_meta_data($handle);
+            $this->assertSame('rb', $meta['mode']);
+            \fclose($handle);
+        } finally {
+            \unlink($tmp);
+        }
+    }
+
+    public function testStripFileScheme(): void
+    {
+        $proxy = new class() extends \Com\Tecnick\File\File {
+            public function stripProxy(string $file): string
+            {
+                return $this->stripFileScheme($file);
+            }
+        };
+
+        // POSIX absolute: the empty-host 'file:///...' form yields a plain path.
+        $this->assertSame('/etc/hosts', $proxy->stripProxy('file:///etc/hosts'));
+        // Windows drive path: must become the bare path, NOT 'file://C:\...'
+        // (which PHP would parse with host "C:" and fail to open).
+        $this->assertSame('C:/Users/me/doc.txt', $proxy->stripProxy('file://C:/Users/me/doc.txt'));
+        $this->assertSame('C:\\Users\\me\\doc.txt', $proxy->stripProxy('file://C:\\Users\\me\\doc.txt'));
+        // A value without the scheme is returned unchanged.
+        $this->assertSame('/plain/path', $proxy->stripProxy('/plain/path'));
+    }
+
+    /**
+     * A 'file://<scheme>://...' input must be rejected even under wildcard
+     * trust, so stripping the 'file://' scheme cannot expose an attacker-chosen
+     * stream wrapper (php:// arbitrary read, http:// SSRF, phar://, data://) to
+     * fopen()/file_get_contents().
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testValidatePathRejectsNestedStreamWrapper(): void
+    {
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tcw');
+        $this->assertIsString($tmp);
+        \file_put_contents($tmp, 'SECRET-CONTENT');
+
+        // Wildcard trust: the nested-scheme guard must still reject these.
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        $vectors = [
+            'file://php://filter/convert.base64-encode/resource=' . $tmp,
+            'file://phar://archive.phar/payload',
+            'file://http://example.com/resource',
+            'file://data://text/plain;base64,U0VDUkVU',
+            // The data wrapper also fires WITHOUT '://' (bare 'data:' form),
+            // which a plain '://' check would miss.
+            'file://data:text/plain;base64,U0VDUkVU',
+            'file://data:text/plain,SECRET',
+        ];
+
+        try {
+            foreach ($vectors as $vector) {
+                $candidate = $vector;
+                $this->assertFalse($file->isValidFile($candidate), 'isValidFile: ' . $vector);
+                $this->assertFalse($file->getLocalFileData($vector), 'getLocalFileData: ' . $vector);
+            }
+        } finally {
+            \unlink($tmp);
+        }
+    }
+
+    /**
+     * The validated path handed to the filesystem must be the bare path, so a
+     * real read succeeds (on Windows the 'file://C:\...' form would not open).
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetLocalFileDataReadsValidatedPath(): void
+    {
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tcr');
+        $this->assertIsString($tmp);
+        \file_put_contents($tmp, 'hello-bytes');
+
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        try {
+            $this->assertSame('hello-bytes', $file->getLocalFileData($tmp));
+        } finally {
+            \unlink($tmp);
+        }
+    }
 }

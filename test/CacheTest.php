@@ -44,15 +44,23 @@ class CacheTest extends TestUtil
     {
         $cache = $this->getTestObject();
         $cachePath = $cache->getCachePath();
-        $this->assertEquals('/', $cachePath[0]);
-        $this->assertEquals('/', \substr($cachePath, -1));
+        // The normalized cache path always ends with the platform separator.
+        $this->assertSame(\DIRECTORY_SEPARATOR, \substr($cachePath, -1));
 
         $cache->setCachePath();
         $this->assertEquals($cachePath, $cache->getCachePath());
 
-        $path = '/tmp';
+        // Use the real temp dir and compare realpath-to-realpath so the
+        // assertion holds on every platform (e.g. macOS /var -> /private/var
+        // symlink, Windows backslash separators).
+        $path = \sys_get_temp_dir();
+        $real = \realpath($path);
+        if ($real === false) {
+            self::fail('the system temp dir must resolve');
+        }
+
         $cache->setCachePath($path);
-        $this->assertEquals('/tmp/', $cache->getCachePath());
+        $this->assertSame($real . \DIRECTORY_SEPARATOR, $cache->getCachePath());
     }
 
     public function testGetFilePrefix(): void
@@ -71,6 +79,58 @@ class CacheTest extends TestUtil
         $val = $cache->getNewFileName('tst', '0123');
         $this->bcAssertMatchesRegularExpression('/_1_2-a-B_c_tst_0123_/', $val);
         \unlink($val);
+    }
+
+    /**
+     * The full prefix, type and key must survive in the generated filename so
+     * the prefix-based glob in delete()/deleteOlderThan() matches on every
+     * platform. tempnam() alone truncates the prefix to 3 chars on Windows.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNamePreservesFullPrefix(): void
+    {
+        $cache = $this->getTestObject();
+        $fileA = $cache->getNewFileName('typ', 'k1');
+        $fileB = $cache->getNewFileName('typ', 'k2');
+
+        try {
+            $this->assertNotSame($fileA, $fileB, 'each call must return a distinct file');
+            $this->assertTrue(\file_exists($fileA));
+            $this->assertTrue(\file_exists($fileB));
+            $this->assertStringStartsWith($cache->getFilePrefix() . 'typ_k1_', \basename($fileA));
+            $this->assertStringStartsWith($cache->getFilePrefix() . 'typ_k2_', \basename($fileB));
+        } finally {
+            if (\is_file($fileA)) {
+                \unlink($fileA);
+            }
+
+            if (\is_file($fileB)) {
+                \unlink($fileB);
+            }
+        }
+    }
+
+    /**
+     * Characters that are invalid in Windows filenames (and glob metacharacters)
+     * are stripped from the generated name, keeping it valid and consistent with
+     * the patterns delete() builds.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNameSanitizesUnsafeTypeAndKey(): void
+    {
+        $cache = $this->getTestObject();
+        $file = $cache->getNewFileName('a/b*', 'c:d?');
+
+        try {
+            $this->assertStringStartsWith($cache->getFilePrefix() . 'ab_cd_', \basename($file));
+            $this->assertTrue(\file_exists($file));
+        } finally {
+            if (\is_file($file)) {
+                \unlink($file);
+            }
+        }
     }
 
     public function testNormalizePathInvalid(): void
