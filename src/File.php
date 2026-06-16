@@ -914,7 +914,8 @@ class File
             $file = 'file://' . $file;
         }
 
-        if (!\str_starts_with($file, 'file://')) {
+        // Compare URL scheme case-insensitively per RFC 3986
+        if (!\str_starts_with(\strtolower($file), 'file://')) {
             return false;
         }
 
