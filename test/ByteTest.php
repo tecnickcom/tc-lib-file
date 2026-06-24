@@ -392,6 +392,39 @@ class ByteTest extends TestUtil
     /**
      * @throws \RangeException
      */
+    public function testGetUFWordOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('A'); // 1 byte, needs 2
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches('/Out-of-bounds read/');
+        $byte->getUFWord(0);
+    }
+
+    /**
+     * @throws \RangeException
+     */
+    public function testGetFWordOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('A'); // 1 byte, needs 2
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches('/Out-of-bounds read/');
+        $byte->getFWord(0);
+    }
+
+    /**
+     * @throws \RangeException
+     */
+    public function testGetLongOutOfBoundsThrows(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('ABC'); // 3 bytes, needs 4
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches('/Out-of-bounds read/');
+        $byte->getLong(0);
+    }
+
+    /**
+     * @throws \RangeException
+     */
     public function testInBoundsReadNoWarning(): void
     {
         // A read exactly at the boundary must not warn.

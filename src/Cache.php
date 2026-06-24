@@ -89,7 +89,12 @@ class Cache
     public function setCachePath(?string $path = null): void
     {
         if ($path === null || \str_contains($path, '://') || !\is_writable($path)) {
-            $this->path = (string) \constant('K_PATH_CACHE');
+            // Normalize the fallback too: K_PATH_CACHE may be supplied by the host
+            // application without a trailing separator, and getNewFileName()/delete()
+            // concatenate $this->path directly. Without normalization the generated
+            // file would escape the cache directory (e.g. ".../cachedir" + "_pfx_..."
+            // lands next to the directory instead of inside it).
+            $this->path = $this->normalizePath((string) \constant('K_PATH_CACHE'));
             return;
         }
 
@@ -135,14 +140,7 @@ class Cache
         $unique = \str_replace('.', '', \uniqid('', true));
         $target = $this->path . $this->prefix . $safeType . '_' . $safeKey . '_' . $unique;
 
-        $renamed = false;
-        \set_error_handler(static fn(): bool => true, E_WARNING);
-
-        try {
-            $renamed = \rename($file, $target);
-        } finally {
-            \restore_error_handler();
-        }
+        $renamed = $this->withoutFsWarnings(static fn(): bool => \rename($file, $target));
 
         return $renamed ? $target : $file;
     }
@@ -172,7 +170,13 @@ class Cache
             return;
         }
 
-        \array_map('unlink', $files);
+        // Suppress warnings: a file may vanish (concurrent cleanup, external
+        // process) between glob() and unlink(); such races are non-fatal.
+        $this->withoutFsWarnings(static function () use ($files): void {
+            foreach ($files as $file) {
+                \unlink($file);
+            }
+        });
     }
 
     /**
@@ -189,11 +193,40 @@ class Cache
         }
 
         $cutoff = \time() - $seconds;
-        foreach ($files as $file) {
-            $mtime = \filemtime($file);
-            if ($mtime !== false && $mtime < $cutoff) {
-                \unlink($file);
+
+        // Suppress warnings: filemtime()/unlink() may fail if a file disappears
+        // between glob() and the call (concurrent cleanup); such races are non-fatal.
+        $this->withoutFsWarnings(static function () use ($files, $cutoff): void {
+            foreach ($files as $file) {
+                $mtime = \filemtime($file);
+                if ($mtime !== false && $mtime < $cutoff) {
+                    \unlink($file);
+                }
             }
+        });
+    }
+
+    /**
+     * Execute a callable while suppressing expected filesystem warnings.
+     *
+     * The cache helpers race against other processes and against files that may
+     * vanish between glob() and the operation; those calls already signal failure
+     * via their return values, so the raw PHP warnings only add noise.
+     *
+     * @template T
+     *
+     * @param callable():T $callback
+     *
+     * @return T
+     */
+    private function withoutFsWarnings(callable $callback): mixed
+    {
+        \set_error_handler(static fn(): bool => true, E_WARNING);
+
+        try {
+            return $callback();
+        } finally {
+            \restore_error_handler();
         }
     }
 

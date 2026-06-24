@@ -150,7 +150,7 @@ Tests are written with [PHPUnit](https://phpunit.de/) and live in `test/`.
 make test
 
 # Run a specific test file
-XDEBUG_MODE=coverage ./vendor/bin/phpunit test/HTMLTest.php
+XDEBUG_MODE=coverage ./vendor/bin/phpunit test/FileTest.php
 ```
 
 Requirements for contributions:
@@ -159,6 +159,21 @@ Requirements for contributions:
 - Every new feature must be accompanied by tests that cover both the happy path and edge cases.
 
 Coverage reports are generated in `target/coverage/`.
+
+### Sandboxed / network-restricted environments
+
+`FileTest` starts a local `php -S` HTTP server (via `proc_open`) so the cURL
+tests can hit a real endpoint over loopback. The startup is bounded and falls
+back to skipping those tests if the server cannot be reached, but in
+environments that block loopback networking or forbid spawning a child process
+you can skip that part outright:
+
+```bash
+TC_LIB_FILE_SKIP_HTTP_SERVER=1 make test
+```
+
+The four server-dependent tests are then reported as **skipped** instead of
+running.
 
 ### Cross-platform behavior
 

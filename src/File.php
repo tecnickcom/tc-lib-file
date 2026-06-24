@@ -285,14 +285,17 @@ class File
      */
     public function fReadInt(mixed $resource): int
     {
-        $data = $this->withoutPhpWarnings(static fn() => \fread($resource, 4));
-        if ($data === false) {
+        // Read through rfRead() so a stream that delivers fewer than 4 bytes per
+        // fread() (sockets, pipes, filtered/compressed wrappers) is still drained
+        // up to the 4 bytes required. A single fread($resource, 4) could return a
+        // short read, after which unpack('N', ...) would fail and silently yield 0.
+        $data = $this->rfRead($resource, 4);
+        if (\strlen($data) < 4) {
             throw new FileException('unable to read the file');
         }
 
         $val = \unpack('Ni', $data);
-        $read = $val !== false ? $val['i'] ?? null : null;
-        return \is_int($read) ? $read : 0;
+        return $val !== false ? (int) ($val['i'] ?? 0) : 0;
     }
 
     /**
@@ -315,7 +318,11 @@ class File
         $data = '';
         while (\strlen($data) < $length && !\feof($resource)) {
             $remaining = \max(1, $length - \strlen($data));
-            $chunk = \fread($resource, $remaining);
+            // Suppress the warning fread() emits on an unreadable handle (e.g. a
+            // write-only stream): failure is already signalled by the false return
+            // and converted to a FileException below, consistent with the rest of
+            // the library's low-level I/O wrappers.
+            $chunk = $this->withoutPhpWarnings(static fn() => \fread($resource, $remaining));
             if ($chunk === false || $chunk === '') {
                 break;
             }
@@ -657,7 +664,7 @@ class File
      *
      * @param string $file Name of the file or URL to read.
      *
-     * @return array<string> List of possible alternative file paths or URLs.
+     * @return list<string> List of possible alternative file paths or URLs.
      */
     public function getAltFilePaths(string $file): array
     {
@@ -667,7 +674,11 @@ class File
         $alt[] = $url;
         $alt[] = $this->getAltPathFromUrl($url);
         $alt[] = $this->getAltUrlFromPath($file);
-        return \array_unique($alt);
+        // Re-index to a 0-based list: array_unique() preserves the original keys,
+        // but those keys are an artifact of the positional candidate order and
+        // carry no meaning (the only consumer iterates by value). Callers get the
+        // clean list promised by the return type.
+        return \array_values(\array_unique($alt));
     }
 
     /**

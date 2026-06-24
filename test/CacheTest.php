@@ -16,6 +16,9 @@
 
 namespace Test;
 
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
+
 /**
  * Unit Test
  *
@@ -349,5 +352,48 @@ class CacheTest extends TestUtil
         $this->assertTrue(\file_exists($fresh), 'Fresh file must be kept');
 
         \unlink($fresh);
+    }
+
+    /**
+     * When the host application defines K_PATH_CACHE without a trailing separator,
+     * the fallback path must still be normalized so generated files land inside the
+     * cache directory instead of escaping into its parent (e.g. ".../cache" + name
+     * yielding ".../cache_<name>"). Runs in a separate process because K_PATH_CACHE
+     * is a constant that cannot be (re)defined once the cache class has set it.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testGetNewFileNameRespectsCachePathWithoutTrailingSeparator(): void
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tcfilecache_' . \uniqid('', true);
+        $this->assertTrue(\mkdir($dir, 0o700));
+
+        // Define K_PATH_CACHE without a trailing separator, before the cache class
+        // has a chance to define it from sys_get_temp_dir().
+        \define('K_PATH_CACHE', $dir);
+
+        try {
+            $cache = new \Com\Tecnick\File\Cache('trailsep');
+
+            // The reported cache path must end with the platform separator.
+            $cachePath = $cache->getCachePath();
+            $this->assertSame(\DIRECTORY_SEPARATOR, \substr($cachePath, -1));
+
+            $file = $cache->getNewFileName('tmp', '0');
+            try {
+                // The generated file must live inside the cache directory.
+                $this->assertTrue(\str_starts_with($file, $cachePath));
+                $this->assertSame(\realpath($dir), \realpath(\dirname($file)));
+                $this->assertTrue(\is_file($file));
+            } finally {
+                if (\is_file($file)) {
+                    \unlink($file);
+                }
+            }
+        } finally {
+            \rmdir($dir);
+        }
     }
 }

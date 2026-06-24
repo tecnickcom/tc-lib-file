@@ -59,10 +59,29 @@ class FileTest extends TestUtil
             return;
         }
 
+        // Explicit opt-out for sandboxed/CI environments that block loopback
+        // networking or forbid spawning a child process. Set
+        // TC_LIB_FILE_SKIP_HTTP_SERVER=1 to skip the local server entirely; the
+        // tests that depend on it are then reported as skipped instead of paying
+        // the (bounded) readiness probe below.
+        $skip = \getenv('TC_LIB_FILE_SKIP_HTTP_SERVER');
+        if ($skip !== false && $skip !== '' && $skip !== '0') {
+            return;
+        }
+
+        // proc_open() may be disabled via disable_functions in hardened setups.
+        if (!\function_exists('proc_open')) {
+            return;
+        }
+
         // Find a free TCP port by binding to port 0 and reading the assignment.
+        // Suppress a possible bind warning (the false return is handled below;
+        // the @ operator is disallowed by the linter).
         $errno = 0;
         $errstr = '';
+        \set_error_handler(static fn(): bool => true);
         $sock = \stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
+        \restore_error_handler();
         if ($sock === false) {
             return;
         }
@@ -71,20 +90,21 @@ class FileTest extends TestUtil
         \fclose($sock);
         $matches = [];
         \preg_match('/(\d+)$/', $name, $matches);
-        self::$serverPort = (int) ($matches[1] ?? 0);
+        $port = (int) ($matches[1] ?? 0);
 
-        if (self::$serverPort === 0) {
+        if ($port === 0) {
             return;
         }
 
         $docRoot = __DIR__ . '/http';
-        $cmd = \sprintf('php -S 127.0.0.1:%d -t %s', self::$serverPort, \escapeshellarg($docRoot));
+        $cmd = \sprintf('php -S 127.0.0.1:%d -t %s', $port, \escapeshellarg($docRoot));
 
         $descriptors = [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']];
         $serverPipes = [];
+        \set_error_handler(static fn(): bool => true);
         $proc = \proc_open($cmd, $descriptors, $serverPipes);
-        if ($proc === false) {
-            self::$serverPort = 0;
+        \restore_error_handler();
+        if (!\is_resource($proc)) {
             return;
         }
 
@@ -92,13 +112,18 @@ class FileTest extends TestUtil
             \fclose($pipe);
         }
 
-        self::$serverProcess = $proc;
-
-        // Wait until the server is accepting connections (up to 5 s).
+        // Wait until the server accepts connections (bounded to ~10 s). Bail out
+        // immediately when the child has already exited (e.g. php -S could not
+        // bind), so a non-functional environment is detected without looping.
         $ready = false;
         for ($i = 0; $i < 50; $i++) {
+            $status = \proc_get_status($proc);
+            if (!$status['running']) {
+                break;
+            }
+
             \set_error_handler(static fn(): bool => true);
-            $conn = \fsockopen('127.0.0.1', self::$serverPort, $errno, $errstr, 0.1);
+            $conn = \fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
             \restore_error_handler();
             if ($conn !== false) {
                 \fclose($conn);
@@ -110,11 +135,12 @@ class FileTest extends TestUtil
         }
 
         if (!$ready) {
-            \proc_terminate($proc);
-            \proc_close($proc);
-            self::$serverProcess = null;
-            self::$serverPort = 0;
+            self::terminateServer($proc);
+            return;
         }
+
+        self::$serverPort = $port;
+        self::$serverProcess = $proc;
     }
 
     /**
@@ -123,10 +149,35 @@ class FileTest extends TestUtil
     public static function tearDownAfterClass(): void
     {
         if (self::$serverProcess !== null) {
-            \proc_terminate(self::$serverProcess);
-            \proc_close(self::$serverProcess);
+            self::terminateServer(self::$serverProcess);
             self::$serverProcess = null;
         }
+
+        self::$serverPort = 0;
+    }
+
+    /**
+     * Stop the spawned HTTP server without letting proc_close() block.
+     *
+     * proc_close() waits for the child to exit, so a child that ignores SIGTERM
+     * would hang the run. Escalate to SIGKILL while it is still running so the
+     * close can never block.
+     *
+     * @param resource $proc Process handle from proc_open().
+     */
+    private static function terminateServer(mixed $proc): void
+    {
+        if (!\is_resource($proc)) {
+            return;
+        }
+
+        \proc_terminate($proc); // SIGTERM
+        $status = \proc_get_status($proc);
+        if ($status['running']) {
+            \proc_terminate($proc, 9); // SIGKILL
+        }
+
+        \proc_close($proc);
     }
 
     protected function getTestObject(): \Com\Tecnick\File\File
@@ -214,6 +265,60 @@ class FileTest extends TestUtil
         $file->fReadInt($handle);
         \fclose($handle);
         \unlink($tmp);
+    }
+
+    /**
+     * A stream that delivers fewer than 4 bytes per fread() must still be drained
+     * up to the 4 bytes the integer needs. A single fread($h, 4) would return a
+     * short read and unpack('N', ...) would silently yield 0.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testFReadIntPartialReadStream(): void
+    {
+        $wrapperName = 'tcsinglebyteint';
+        if (!\in_array($wrapperName, \stream_get_wrappers(), true)) {
+            \stream_wrapper_register($wrapperName, SingleByteStreamWrapper::class);
+        }
+
+        $file = $this->getTestObject();
+        $handle = \fopen($wrapperName . '://data', 'rb');
+        $this->assertNotFalse($handle);
+
+        try {
+            // Wrapper yields 'abcdefgh' one byte per read; first 4 bytes 'abcd'.
+            $res = $file->fReadInt($handle);
+            $expected = (\ord('a') << 24) | (\ord('b') << 16) | (\ord('c') << 8) | \ord('d');
+            $this->assertSame($expected, $res);
+        } finally {
+            \fclose($handle);
+            \stream_wrapper_unregister($wrapperName);
+        }
+    }
+
+    /**
+     * A stream that ends before 4 bytes are available must raise a FileException
+     * rather than silently returning 0.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testFReadIntTruncatedStreamThrows(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $file = $this->getTestObject();
+
+        $tmp = \tempnam(\sys_get_temp_dir(), 'tc');
+        $this->assertNotFalse($tmp);
+        \file_put_contents($tmp, 'xy'); // only 2 bytes
+        $handle = \fopen($tmp, 'rb');
+        $this->assertNotFalse($handle);
+
+        try {
+            $file->fReadInt($handle);
+        } finally {
+            \fclose($handle);
+            \unlink($tmp);
+        }
     }
 
     /**
@@ -329,8 +434,8 @@ class FileTest extends TestUtil
     }
 
     /**
-     * @param string $file     File path
-     * @param array{string, array<int, string>}  $expected Expected result
+     * @param string       $file     File path
+     * @param list<string> $expected Expected result
      */
     #[DataProvider('getAltFilePathsDataProvider')]
     public function testGetAltFilePaths(string $file, array $expected): void
@@ -347,7 +452,11 @@ class FileTest extends TestUtil
     /**
      * Data provider for testGetAltFilePaths
      *
-     * @return array<array{string, array<int, string>}>
+     * getAltFilePaths() returns a 0-indexed list: array_unique() drops duplicate
+     * candidates and the result is re-indexed, so the expected values are plain
+     * sequential lists (the surviving keys carry no meaning).
+     *
+     * @return array<array{string, list<string>}>
      */
     public static function getAltFilePathsDataProvider(): array
     {
@@ -355,43 +464,43 @@ class FileTest extends TestUtil
             [
                 'http://www.example.com/test.txt',
                 [
-                    0 => 'http://www.example.com/test.txt',
+                    'http://www.example.com/test.txt',
                 ],
             ],
             [
                 'https://localhost/path/test.txt',
                 [
-                    0 => 'https://localhost/path/test.txt',
-                    3 => '/var/www/path/test.txt',
+                    'https://localhost/path/test.txt',
+                    '/var/www/path/test.txt',
                 ],
             ],
             [
                 '//www.example.com/space test.txt',
                 [
-                    0 => '//www.example.com/space test.txt',
-                    2 => 'https://www.example.com/space%20test.txt',
+                    '//www.example.com/space test.txt',
+                    'https://www.example.com/space%20test.txt',
                 ],
             ],
             [
                 '/path/test.txt',
                 [
-                    0 => '/path/test.txt',
-                    1 => '/var/www/path/test.txt',
-                    4 => 'https://localhost/path/test.txt',
+                    '/path/test.txt',
+                    '/var/www/path/test.txt',
+                    'https://localhost/path/test.txt',
                 ],
             ],
             [
                 'https://localhost/path/test.php?a=0&b=1&amp;c=2;&amp;d="a+b%20c"',
                 [
-                    0 => 'https://localhost/path/test.php?a=0&b=1&amp;c=2;&amp;d="a+b%20c"',
-                    2 => 'https://localhost/path/test.php?a=0&b=1&c=2;&d="a+b%20c"',
+                    'https://localhost/path/test.php?a=0&b=1&amp;c=2;&amp;d="a+b%20c"',
+                    'https://localhost/path/test.php?a=0&b=1&c=2;&d="a+b%20c"',
                 ],
             ],
             [
                 'path/test.txt',
                 [
-                    0 => 'path/test.txt',
-                    4 => 'https://localhost/path/test.txt',
+                    'path/test.txt',
+                    'https://localhost/path/test.txt',
                 ],
             ],
         ];
@@ -579,6 +688,29 @@ class FileTest extends TestUtil
         $url = 'https://example.com/logo.jpg';
 
         $this->assertSame($url, $file->resolveLocalPath($url, [__DIR__]));
+    }
+
+    public function testResolveLocalPathResolvesExistingPathWithoutBaseDirs(): void
+    {
+        $file = new \Com\Tecnick\File\File();
+
+        // An existing path resolves directly via realpath(), before any base dir
+        // is consulted.
+        $this->assertSame(\realpath(__FILE__), $file->resolveLocalPath(__FILE__));
+    }
+
+    public function testResolveLocalPathSkipsEmptyAndInvalidBaseDirsThenFallsBack(): void
+    {
+        $file = new \Com\Tecnick\File\File();
+
+        $missing = 'tc-missing-' . \uniqid('', true) . '-file.bin';
+        $invalidBase = \sys_get_temp_dir() . '/tc-no-such-dir-' . \uniqid('', true);
+        $this->assertFalse(\realpath($invalidBase));
+
+        // '' is skipped, the non-existent base dir fails realpath() and is also
+        // skipped, and with nothing left to try the original relative path is
+        // returned unchanged.
+        $this->assertSame($missing, $file->resolveLocalPath($missing, ['', $invalidBase]));
     }
 
     public function testHasDoubleDots(): void
