@@ -29,8 +29,7 @@
     ],
     "require": {
         "php": ">=8.2",
-        "ext-curl": "*",
-        "ext-pcre": "*"
+        "ext-curl": "*"
     },
     "minimum-stability": "stable",
     "prefer-stable": true,

@@ -47,7 +47,7 @@ The package is intentionally small but critical: it centralizes low-level I/O co
 ## Requirements
 
 - PHP 8.2 or later
-- Extensions: `curl`, `pcre`
+- Extension: `curl`
 - Composer
 
 ---
