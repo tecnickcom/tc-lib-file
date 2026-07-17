@@ -21,7 +21,7 @@ namespace Com\Tecnick\File;
 /**
  * Com\Tecnick\File\Dir
  *
- * Function to read byte-level data
+ * Function to handle directories
  *
  * @since     2015-07-28
  * @category  Library
