@@ -29,7 +29,11 @@
     ],
     "require": {
         "php": ">=8.2",
-        "ext-curl": "*"
+        "ext-curl": "*",
+        "ext-pcre": "*"
+    },
+    "suggest": {
+        "ext-intl": "Enables Unicode NFC normalization when matching paths against the allowlist"
     },
     "minimum-stability": "stable",
     "prefer-stable": true,

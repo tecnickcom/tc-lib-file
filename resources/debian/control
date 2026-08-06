@@ -13,5 +13,6 @@ Package: ~#PKGNAME#~
 Provides: php-~#PROJECT#~
 Architecture: all
 Depends: php (>= 8.2.0), php-curl, ${misc:Depends}
+Recommends: php-intl
 Description: PHP Color library
  This library includes PHP classes to read byte-level data from files

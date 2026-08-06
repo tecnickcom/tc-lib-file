@@ -16,7 +16,10 @@ BuildArch: noarch
 
 Requires:  php(language) >= 8.2.0
 Requires:  php-curl
+Requires:  php-date
 Requires:  php-pcre
+
+Recommends: php-intl
 
 Provides:  php-composer(%{c_vendor}/%{gh_project}) = %{version}
 Provides:  php-%{gh_project} = %{version}
