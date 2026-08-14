@@ -61,12 +61,14 @@
     "scripts": {
         "test": "@php -d xdebug.mode=coverage vendor/bin/phpunit --stderr test",
         "analyse": ["@analyse:src", "@analyse:test"],
-        "analyse:src": "mago --config mago.src.toml analyze src",
-        "analyse:test": "mago --config mago.test.toml analyze test",
+        "analyse:src": "vendor/bin/mago --config mago.src.toml analyze src",
+        "analyse:test": "vendor/bin/mago --config mago.test.toml analyze test",
         "cs-check": ["@cs-check:src", "@cs-check:test"],
-        "cs-check:src": "mago --config mago.src.toml lint src",
-        "cs-check:test": "mago --config mago.test.toml lint test",
-        "cs-fix": "mago fmt src test",
+        "cs-check:src": "vendor/bin/mago --config mago.src.toml lint src",
+        "cs-check:test": "vendor/bin/mago --config mago.test.toml lint test",
+        "cs-fix": ["@cs-fix:src", "@cs-fix:test"],
+        "cs-fix:src": "vendor/bin/mago --config mago.src.toml fmt src",
+        "cs-fix:test": "vendor/bin/mago --config mago.test.toml fmt test",
         "qa": ["@cs-check", "@analyse", "@test"]
     }
 }
