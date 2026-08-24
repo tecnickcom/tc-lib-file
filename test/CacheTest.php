@@ -272,7 +272,11 @@ class CacheTest extends TestUtil
      */
     public function testDeleteWorksWhenCachePathContainsGlobMetacharacters(): void
     {
-        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf[' . \uniqid('', false) . ']*?';
+        // '[' and ']' are glob metacharacters and are legal in a filename on
+        // every platform; '*' and '?' are also glob metacharacters but are
+        // illegal in a Windows filename, so they are only added elsewhere.
+        $meta = \DIRECTORY_SEPARATOR === '\\' ? '' : '*?';
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf[' . \uniqid('', false) . ']' . $meta;
         $this->assertTrue(\mkdir($dir, 0o700));
 
         try {

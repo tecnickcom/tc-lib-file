@@ -251,6 +251,49 @@ class FileTest extends TestUtil
     }
 
     /**
+     * Create a temporary directory and return its canonical path.
+     *
+     * sys_get_temp_dir() can report a path that realpath() rewrites: an 8.3
+     * short name on Windows ('C:\Users\RUNNER~1\...' for 'runneradmin') and the
+     * /var -> /private/var symlink on macOS. The allowlist stores the canonical
+     * form of each root, so a test that built its paths from the unresolved
+     * value would compare two spellings of the same directory and never match.
+     */
+    private static function makeTempDir(): string
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        if (!\mkdir($dir, 0o777, true)) {
+            self::fail('unable to create the temporary directory: ' . $dir);
+        }
+
+        $real = \realpath($dir);
+        if ($real === false) {
+            self::fail('unable to resolve the temporary directory: ' . $dir);
+        }
+
+        return $real;
+    }
+
+    /**
+     * Remove a symlink.
+     *
+     * On Windows a symlink to a directory is itself a directory entry and has
+     * to be removed with rmdir(); unlink() fails on it. On POSIX unlink() is
+     * correct for a symlink to either a file or a directory.
+     *
+     * @param string $path Path of the symlink to remove.
+     */
+    private static function removeSymlink(string $path): void
+    {
+        if (\DIRECTORY_SEPARATOR === '\\' && \is_dir($path)) {
+            \rmdir($path);
+            return;
+        }
+
+        \unlink($path);
+    }
+
+    /**
      * Create a symlink, reporting failure instead of warning.
      *
      * Windows without developer mode and some hardened containers refuse
@@ -1180,7 +1223,7 @@ class FileTest extends TestUtil
      */
     public function testSymlinkedAllowedRootMatchesFilesInside(): void
     {
-        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        $base = self::makeTempDir();
         $real = $base . \DIRECTORY_SEPARATOR . 'real';
         $link = $base . \DIRECTORY_SEPARATOR . 'link';
 
@@ -1209,7 +1252,7 @@ class FileTest extends TestUtil
             \unlink($outside);
         } finally {
             \unlink($target);
-            \unlink($link);
+            self::removeSymlink($link);
             \rmdir($real);
             \rmdir($base);
         }
@@ -1223,7 +1266,7 @@ class FileTest extends TestUtil
      */
     public function testSymlinkEscapingAllowedRootIsRejected(): void
     {
-        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        $base = self::makeTempDir();
         $root = $base . \DIRECTORY_SEPARATOR . 'root';
 
         $this->assertTrue(\mkdir($root, 0o777, true));
@@ -1243,7 +1286,7 @@ class FileTest extends TestUtil
             $this->assertFalse($file->isAllowedFile($escape));
             $this->assertFalse($file->getLocalFileData($escape));
         } finally {
-            \unlink($escape);
+            self::removeSymlink($escape);
             \unlink($secret);
             \rmdir($root);
             \rmdir($base);
