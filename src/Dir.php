@@ -34,12 +34,19 @@ namespace Com\Tecnick\File;
 class Dir
 {
     /**
-     * Returns the full path of a parent directory
+     * Returns the full path of a writable parent directory.
+     *
+     * Walks up from $dir looking for a writable directory named $name. The
+     * candidate must be writable to match, so a read-only directory of that
+     * name is skipped.
      *
      * @param string $name Name of the parent folder to search
      * @param string $dir  Starting directory
      *
-     * @return string Directory name
+     * @return string Directory name with a trailing separator, or an empty
+     *                string when no writable match exists up to the filesystem
+     *                root. An empty return is the only "not found" signal: a
+     *                match at the root is reported as the root itself.
      */
     public function findParentDir(string $name, string $dir = __DIR__): string
     {
@@ -52,18 +59,13 @@ class Dir
 
             $candidate = $dir . DIRECTORY_SEPARATOR . $name;
             if ($this->isPathAllowed($candidate, $allowedBases) && \is_writable($candidate)) {
-                $dir = $candidate;
-                break;
+                return \str_ends_with($candidate, DIRECTORY_SEPARATOR) ? $candidate : $candidate . DIRECTORY_SEPARATOR;
             }
 
             $dir = \dirname($dir);
         }
 
-        if (\substr($dir, -1) !== DIRECTORY_SEPARATOR) {
-            $dir .= DIRECTORY_SEPARATOR;
-        }
-
-        return $dir;
+        return '';
     }
 
     /**

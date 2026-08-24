@@ -42,6 +42,15 @@ The package is intentionally small but critical: it centralizes low-level I/O co
 - Helpers used by parser and image/font import stacks
 - Error handling via typed exceptions
 
+### Classes
+| Class | Purpose |
+|---|---|
+| [`File`](src/File.php) | Local and remote reads behind host/path allowlists |
+| [`Byte`](src/Byte.php) | Big-endian byte-level reads from a binary string |
+| [`Cache`](src/Cache.php) | Prefixed temporary file cache |
+| [`Dir`](src/Dir.php) | Writable parent-directory lookup |
+| [`Exception`](src/Exception.php) | Library exception type |
+
 ---
 
 ## Requirements
@@ -105,6 +114,29 @@ $file
 
 Avoid wildcard trust (`'*'`) unless you fully control all inputs and deployment boundaries.
 
+Allowlist entries are normalized once, when they are set:
+
+- **Hosts** are matched case-insensitively (per RFC 4343) and a trailing root dot is
+  ignored, so `example.com`, `EXAMPLE.COM` and `example.com.` are the same entry.
+  A non-default port is part of an `HTTP_HOST` value, so include it
+  (`example.com:8080`) to trust that origin. A port in a URL is not matched: the
+  allowlist constrains the host.
+- **Paths** are stored in both their literal and canonical (`realpath()`) form, so a
+  root that traverses a symlink still matches files inside it. This matters on macOS
+  (`/tmp` and `/var` are symlinks into `/private`), in containers, and with
+  release-directory symlinks such as `current -> releases/42`.
+
+### Validating without side effects
+
+`isValidURL()` and `isValidFile()` take their argument **by reference** and rewrite it
+(trimming, and adding the `file://` scheme), so they only accept a variable. Use the
+by-value counterparts for a literal or any other expression:
+
+```php
+$file->isAllowedUrl('https://example.com/logo.png'); // bool, argument untouched
+$file->isAllowedFile('/srv/my-app/data/report.pdf'); // bool, argument untouched
+```
+
 ### Remote fetching
 
 Remote URLs are always fetched with cURL, so the `allow_url_fopen` ini setting has no
@@ -131,6 +163,73 @@ $file = new \Com\Tecnick\File\File(
 	],
 );
 ```
+
+---
+
+## Other classes
+
+### `Byte` — byte-level reads from a binary string
+
+Immutable reader for big-endian values, used by the font and image parsers. Every
+reader validates its bounds and throws `\RangeException` rather than returning a
+wrong value.
+
+```php
+$byte = new \Com\Tecnick\File\Byte($binaryString);
+
+$byte->getLength();     // int: string length in bytes
+$byte->getByte(0);      // uint8
+$byte->getUShort(0);    // uint16 (alias: getUFWord)
+$byte->getShort(0);     //  int16 (alias: getFWord)
+$byte->getULong(0);     // uint32
+$byte->getLong(0);      //  int32
+$byte->getFixed(0);     // float, 16.16 fixed-point
+```
+
+The 32-bit readers assume a 64-bit PHP build.
+
+### `Cache` — temporary file cache
+
+Each instance owns a cache directory and a filename prefix. `delete()` only ever
+touches files carrying that instance's prefix.
+
+```php
+$cache = new \Com\Tecnick\File\Cache('myapp');   // null = random prefix
+$cache->setCachePath('/var/cache/myapp');        // falls back to K_PATH_CACHE
+
+$path = $cache->getNewFileName('image', 'logo'); // create a new cache file
+file_put_contents($path, $data);
+
+$cache->delete('image', 'logo');                 // one type/key pair
+$cache->delete('image');                         // one type
+$cache->delete();                                // every file for this prefix
+$cache->deleteOlderThan(3600);                   // by age, in seconds
+```
+
+The cache directory is `K_PATH_CACHE` when set, otherwise `upload_tmp_dir`, otherwise
+the system temp directory. `setCachePath()` falls back to `K_PATH_CACHE` when the
+given path is a stream wrapper or is not a writable directory, and throws
+`\Com\Tecnick\File\Exception` if no usable directory can be resolved at all.
+
+`$type` and `$key` scope `delete()`; they do **not** address a file for retrieval. The
+generated name carries a random suffix, so keep the value `getNewFileName()` returned.
+
+### `Dir` — writable parent-directory lookup
+
+```php
+$dir = (new \Com\Tecnick\File\Dir())->findParentDir('cache', __DIR__);
+```
+
+Walks up from `$dir` looking for a **writable** directory named `$name`. Returns the
+path with a trailing separator, or `''` when there is no match up to the filesystem
+root. Paths outside an active `open_basedir` restriction are skipped rather than
+probed, so the search raises no warnings.
+
+### `Exception`
+
+`\Com\Tecnick\File\Exception` extends `\Exception`; it is what every documented
+`@throws` in the library refers to. `Byte` is the exception: out-of-bounds reads throw
+the SPL `\RangeException`.
 
 ---
 
@@ -163,8 +262,8 @@ $file = new \Com\Tecnick\File\File(
 $file->setCaseSensitivePaths(true);
 ```
 
-The same override makes the behavior testable on any host (the CI runs on Linux
-only: Windows and macOS are validated locally).
+The same override makes the behavior testable on any host, independently of the
+platform the tests run on.
 
 ### Unicode (macOS)
 
@@ -191,11 +290,25 @@ matched only when explicitly allowlisted (note the network-access implication).
 
 ## Development
 
+Every tool is a Composer dev dependency, so the whole gate runs without the Makefile:
+
+```bash
+composer install
+composer run qa         # cs-check + analyse + test
+composer run cs-fix     # format
+```
+
+The Makefile wraps the same commands and adds packaging (Linux only):
+
 ```bash
 make deps
 make help
 make qa
 ```
+
+The remote-fetch tests start a local PHP built-in server on a free port. Set
+`TC_LIB_FILE_SKIP_HTTP_SERVER=1` to skip them where loopback networking or
+`proc_open()` is unavailable; on CI those tests fail rather than skip silently.
 
 ---
 

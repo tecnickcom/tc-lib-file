@@ -93,6 +93,11 @@ class File
      * URL construction is skipped entirely. Set to a non-empty list of exact
      * hostname strings to enable the feature for specific hosts.
      *
+     * Entries are normalized (lowercased, trailing root dot removed) so that
+     * matching follows DNS case-insensitivity. A non-default port is part of
+     * the HTTP_HOST value, so an entry must include it ('example.com:8080')
+     * to match requests on that port.
+     *
      * SECURITY WARNING: using '*' trusts any host value and disables host
      * validation. If request metadata (for example HTTP_HOST / SCRIPT_URI) is
      * attacker-controlled via reverse-proxy misconfiguration or header
@@ -170,13 +175,36 @@ class File
         array $allowedPaths = [],
         ?bool $caseSensitivePaths = null,
     ) {
-        $this->allowedHosts = $allowedHosts;
+        $this->allowedHosts = $this->normalizeAllowedHosts($allowedHosts);
         $this->maxRemoteSize = $maxRemoteSize;
         $this->curlopts = $curlopts;
-        $this->defaultCurlOpts = $defaultCurlOpts ?? self::CURLOPT_DEFAULT;
+        $this->defaultCurlOpts = $defaultCurlOpts ?? self::defaultCurlOptions();
         $this->fixedCurlOpts = $fixedCurlOpts ?? self::CURLOPT_FIXED;
         $this->caseSensitiveOverride = $caseSensitivePaths;
         $this->allowedPaths = $this->normalizeAllowedPaths($allowedPaths);
+    }
+
+    /**
+     * Return the default cURL options for this libcurl build.
+     *
+     * CURLOPT_PROTOCOLS and CURLOPT_REDIR_PROTOCOLS are deprecated since
+     * libcurl 7.85; the string variants replace them where available. The
+     * substitution cannot live in the CURLOPT_DEFAULT constant because a
+     * constant expression cannot test for a defined symbol.
+     *
+     * @return array<int, bool|int|string> cURL options.
+     */
+    protected static function defaultCurlOptions(): array
+    {
+        $opts = self::CURLOPT_DEFAULT;
+
+        if (\defined('CURLOPT_PROTOCOLS_STR') && \defined('CURLOPT_REDIR_PROTOCOLS_STR')) {
+            unset($opts[CURLOPT_PROTOCOLS], $opts[CURLOPT_REDIR_PROTOCOLS]);
+            $opts[CURLOPT_PROTOCOLS_STR] = 'http,https';
+            $opts[CURLOPT_REDIR_PROTOCOLS_STR] = 'http,https';
+        }
+
+        return $opts;
     }
 
     /**
@@ -197,7 +225,7 @@ class File
      */
     public function setAllowedHosts(array $allowedHosts): static
     {
-        $this->allowedHosts = $allowedHosts;
+        $this->allowedHosts = $this->normalizeAllowedHosts($allowedHosts);
         return $this;
     }
 
@@ -265,10 +293,10 @@ class File
             $mode .= 'b';
         }
 
-        $path = $this->stripFileScheme($file);
+        $path = $this->resolveValidatedPath($file);
         $handler = $this->withoutPhpWarnings(static fn() => \fopen($path, $mode));
         if ($handler === false) {
-            throw new FileException('unable to open the file: ' . $file);
+            throw new FileException('unable to open the file: ' . $path);
         }
 
         return $handler;
@@ -338,17 +366,6 @@ class File
     }
 
     /**
-     * Check whether the stream still has buffered unread bytes.
-     *
-     * @param resource $resource A file system pointer resource.
-     */
-    protected function hasUnreadBytes(mixed $resource): bool
-    {
-        $stream_meta_data = \stream_get_meta_data($resource);
-        return $stream_meta_data['unread_bytes'] > 0;
-    }
-
-    /**
      * Reads entire file into a string.
      * The file can be also an URL.
      *
@@ -405,8 +422,28 @@ class File
             return false;
         }
 
-        $path = $this->stripFileScheme($file);
+        $path = $this->resolveValidatedPath($file);
         return $this->withoutPhpWarnings(static fn() => \file_get_contents($path));
+    }
+
+    /**
+     * Return the canonical path to open for an already-validated local file.
+     *
+     * isValidFile() validates the canonical form of the path, so opening that
+     * same form rather than the caller-supplied one narrows the window in which
+     * a component could be swapped for a symlink between the check and the open.
+     * Falls back to the plain path when it does not resolve (a file about to be
+     * created), which is the case isValidFile() validated via the nearest
+     * existing ancestor.
+     *
+     * @param string $file Local file reference, optionally 'file://'-prefixed.
+     */
+    protected function resolveValidatedPath(string $file): string
+    {
+        $path = $this->stripFileScheme($file);
+        $realPath = \realpath($path);
+
+        return $realPath !== false ? $realPath : $path;
     }
 
     /**
@@ -584,6 +621,11 @@ class File
      *
      * The cURL path is always used, independently of the allow_url_fopen ini setting.
      *
+     * The response is buffered in memory, so a transfer costs up to
+     * $maxRemoteSize bytes of PHP memory. The limit is enforced by a progress
+     * callback: when the response declares no Content-Length the transfer can
+     * overshoot by up to one receive buffer before it is aborted.
+     *
      * @param string $url URL to read.
      *
      * @return string|false Remote content, or FALSE when the URL is not
@@ -621,9 +663,7 @@ class File
             $curlopts[CURLOPT_FOLLOWLOCATION] = true;
         }
 
-        $curlopts = \array_replace($curlopts, $this->defaultCurlOpts);
-        $curlopts = \array_replace($curlopts, $this->curlopts);
-        $curlopts = \array_replace($curlopts, $this->fixedCurlOpts);
+        $curlopts = $this->mergeCurlOptions($curlopts);
         $curlopts[CURLOPT_URL] = $url;
 
         // Use a progress callback to enforce the max remote size limit
@@ -646,17 +686,44 @@ class File
         }
 
         // Check if transfer was aborted due to size limit
-        $curlError = \curl_errno($curlHandle);
-        if ($curlError === 42) { // CURLE_ABORTED_BY_CALLBACK
-            throw new FileException('remote file exceeds maximum allowed size of ' . $this->maxRemoteSize . ' bytes');
+        if (\curl_errno($curlHandle) === CURLE_ABORTED_BY_CALLBACK) {
+            throw new FileException(
+                'remote file exceeds maximum allowed size of '
+                . $this->maxRemoteSize
+                . ' bytes (aborted after '
+                . $bytesRead
+                . ' bytes)',
+            );
         }
 
         if ($ret === false) {
             return false;
         }
 
+        // curl_exec() returns true instead of the body when a caller-supplied
+        // $fixedCurlOpts omits CURLOPT_RETURNTRANSFER.
         // The CurlHandle is released automatically when it goes out of scope.
         return $ret === true ? '' : $ret;
+    }
+
+    /**
+     * Merge the cURL option layers in precedence order.
+     *
+     * Request options are overlaid with the instance defaults, then the caller's
+     * custom options, then the fixed options. Fixed comes last so that
+     * security-critical settings (TLS verification, RETURNTRANSFER, FAILONERROR)
+     * cannot be disabled through setCurlOpts().
+     *
+     * @param array<int, bool|int|string> $curlopts Options computed for this request.
+     *
+     * @return array<int, bool|int|string> Merged cURL options.
+     */
+    protected function mergeCurlOptions(array $curlopts): array
+    {
+        $curlopts = \array_replace($curlopts, $this->defaultCurlOpts);
+        $curlopts = \array_replace($curlopts, $this->curlopts);
+
+        return \array_replace($curlopts, $this->fixedCurlOpts);
     }
 
     /**
@@ -861,7 +928,12 @@ class File
                 return $file;
             }
 
-            return $urldata['scheme'] . '://' . $urldata['host'] . ($file[0] === '/' ? '' : '/') . $file;
+            // Carry the port over: dropping it would point the candidate URL at
+            // the default port of the same host, a different origin.
+            $port = $urldata['port'] ?? null;
+            $authority = $urldata['host'] . (\is_int($port) ? ':' . $port : '');
+
+            return $urldata['scheme'] . '://' . $authority . ($file[0] === '/' ? '' : '/') . $file;
         }
 
         return $file;
@@ -874,6 +946,10 @@ class File
      * https scheme, and has a non-empty host trusted by isValidHost().
      * Returns false for invalid URLs, unsupported schemes, missing hosts,
      * or untrusted hosts.
+     *
+     * $url is passed by reference and is replaced with its trimmed form, so it
+     * must be a variable. Use isAllowedUrl() to validate a literal or any other
+     * expression.
      *
      * @param string $url URL to validate.
      */
@@ -903,6 +979,32 @@ class File
     }
 
     /**
+     * Validate an HTTP(S) URL against the configured host allowlist.
+     *
+     * By-value counterpart of isValidURL(), callable with a literal or any
+     * other expression and leaving the argument untouched.
+     *
+     * @param string $url URL to validate.
+     */
+    public function isAllowedUrl(string $url): bool
+    {
+        return $this->isValidURL($url);
+    }
+
+    /**
+     * Validate a local file path against the configured $allowedPaths allowlist.
+     *
+     * By-value counterpart of isValidFile(), callable with a literal or any
+     * other expression and leaving the argument untouched.
+     *
+     * @param string $file File path to validate.
+     */
+    public function isAllowedFile(string $file): bool
+    {
+        return $this->isValidFile($file);
+    }
+
+    /**
      * Validate that the given hostname appears in the $allowedHosts allowlist.
      * Returns true when the hostname is trusted, false otherwise.
      * When the allowlist is empty (the default) every host is rejected.
@@ -911,10 +1013,47 @@ class File
      */
     protected function isValidHost(string $host): bool
     {
+        $host = $this->normalizeHost($host);
+
         return (
             $host !== ''
             && (\in_array('*', $this->allowedHosts, true) || \in_array($host, $this->allowedHosts, true))
         );
+    }
+
+    /**
+     * Normalize trusted hostnames once at assignment time.
+     *
+     * @param array<string> $allowedHosts
+     *
+     * @return array<string>
+     */
+    protected function normalizeAllowedHosts(array $allowedHosts): array
+    {
+        $normalized = [];
+        foreach ($allowedHosts as $allowedHost) {
+            $host = $this->normalizeHost($allowedHost);
+            if ($host !== '') {
+                $normalized[] = $host;
+            }
+        }
+
+        return \array_values(\array_unique($normalized));
+    }
+
+    /**
+     * Normalize a hostname for allowlist comparison.
+     *
+     * Hostnames are case-insensitive (RFC 4343) and a trailing root dot names
+     * the same host, so both operands are folded before they are compared.
+     *
+     * @param string $host Hostname to normalize.
+     */
+    protected function normalizeHost(string $host): string
+    {
+        $host = \strtolower(\trim($host));
+
+        return $host === '*' ? '*' : \rtrim($host, '.');
     }
 
     /**
@@ -1060,6 +1199,13 @@ class File
     /**
      * Normalize trusted path roots once at assignment time.
      *
+     * Each root is kept in both its literal and its canonical form. isValidFile()
+     * compares the realpath() of a candidate against these roots, so a root that
+     * itself traverses a symlink (/tmp and /var on macOS, a release-directory
+     * symlink, a symlinked mount inside a container) would never match the
+     * resolved candidate if only the literal form were stored. Both forms name
+     * the same directory, so accepting both grants no additional access.
+     *
      * @param array<string> $allowedPaths
      *
      * @return array<string>
@@ -1079,6 +1225,16 @@ class File
             }
 
             $normalized[] = $path;
+
+            $realPath = \realpath($allowedPath);
+            if ($realPath === false) {
+                continue;
+            }
+
+            $canonical = \rtrim($this->normalizePathForComparison($realPath), '/');
+            if ($canonical !== '') {
+                $normalized[] = $canonical;
+            }
         }
 
         return \array_values(\array_unique($normalized));
@@ -1156,15 +1312,34 @@ class File
     }
 
     /**
-     * Check if the path contains parent directory dots ('..').
+     * Check whether the path contains a parent-directory segment ('..').
+     *
+     * The test is per segment, not a substring search: '..' only traverses when
+     * it is a whole path component, so a filename that merely contains two
+     * consecutive dots ('report..2024.txt', 'v1..v2.diff') is a valid name.
+     *
+     * Percent-encoded dots and separators are decoded first so that '%2e%2e',
+     * '..%2Ffile' and their HTML-entity equivalents are seen as the segments
+     * they resolve to. A leading Windows drive designator is stripped so that
+     * 'C:..\file' splits like '..\file'.
      *
      * @param string $path path to check
      *
-     * @return bool true if the path contains parent directory dots ('..')
+     * @return bool true if the path contains a parent-directory segment
      */
     protected function hasDoubleDots(string $path): bool
     {
-        return \str_contains(\str_ireplace('%2E', '.', \html_entity_decode($path, ENT_QUOTES, 'UTF-8')), '..');
+        // ENT_HTML5 is required for '&period;' and '&sol;': the default
+        // ENT_HTML401 table only covers the five basic entities.
+        $decoded = \str_ireplace(
+            ['%2E', '%2F', '%5C'],
+            ['.', '/', '/'],
+            \html_entity_decode($path, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+        );
+
+        $decoded = (string) \preg_replace('/^[A-Za-z]:/', '', $decoded);
+
+        return \in_array('..', \explode('/', \str_replace('\\', '/', $decoded)), true);
     }
 
     /**

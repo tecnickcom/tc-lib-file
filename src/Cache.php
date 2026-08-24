@@ -59,6 +59,8 @@ class Cache
      * Set the file prefix (common name)
      *
      * @param ?string $prefix Common prefix to be used for all cache files
+     *
+     * @throws \Com\Tecnick\File\Exception when the cache directory cannot be resolved.
      */
     public function __construct(?string $prefix = null)
     {
@@ -84,11 +86,16 @@ class Cache
     /**
      * Set the default cache directory path
      *
+     * Falls back to K_PATH_CACHE when $path is null, names a stream wrapper, or
+     * is not a writable directory.
+     *
      * @param ?string $path Cache directory path; if null use the K_PATH_CACHE value
+     *
+     * @throws \Com\Tecnick\File\Exception when the resulting directory cannot be resolved.
      */
     public function setCachePath(?string $path = null): void
     {
-        if ($path === null || \str_contains($path, '://') || !\is_writable($path)) {
+        if ($path === null || \str_contains($path, '://') || !\is_dir($path) || !\is_writable($path)) {
             // Normalize the fallback too: K_PATH_CACHE may be supplied by the host
             // application without a trailing separator, and getNewFileName()/delete()
             // concatenate $this->path directly. Without normalization the generated
@@ -113,8 +120,12 @@ class Cache
      * Returns a temporary filename for caching files.
      * Throws an exception when tempnam() fails, consistent with the rest of the library.
      *
-     * @param string $type Type of file
-     * @param string $key  File key (used to retrieve file from cache)
+     * The returned name carries a random suffix, so it cannot be reconstructed
+     * from $type and $key. Both only scope the file for delete(): the caller is
+     * responsible for storing the returned path.
+     *
+     * @param string $type Type of file (used to scope delete())
+     * @param string $key  File key (used to scope delete())
      *
      * @return string Temporary filename
      *
@@ -156,27 +167,57 @@ class Cache
         $safeType = $type !== null ? \preg_replace(self::SAFE_NAME_PATTERN, '', $type) : null;
         $safeKey = $key !== null ? \preg_replace(self::SAFE_NAME_PATTERN, '', $key) : null;
 
-        $path = $this->path . $this->prefix;
+        $prefix = $this->prefix;
         if ($safeType !== null) {
-            $path .= $safeType . '_';
+            $prefix .= $safeType . '_';
             if ($safeKey !== null) {
-                $path .= $safeKey . '_';
+                $prefix .= $safeKey . '_';
             }
         }
 
-        $path .= '*';
-        $files = \glob($path);
-        if ($files === [] || $files === false) {
+        $files = $this->findFiles($prefix);
+        if ($files === []) {
             return;
         }
 
         // Suppress warnings: a file may vanish (concurrent cleanup, external
-        // process) between glob() and unlink(); such races are non-fatal.
+        // process) between the scan and unlink(); such races are non-fatal.
         $this->withoutFsWarnings(static function () use ($files): void {
             foreach ($files as $file) {
                 \unlink($file);
             }
         });
+    }
+
+    /**
+     * Return the cache files whose name starts with the given prefix.
+     *
+     * The directory is scanned rather than matched with glob(): the cache path
+     * comes from the host application and may legitimately contain glob
+     * metacharacters ('[', '*', '?'), which would make the pattern silently
+     * match nothing and leak every cache file.
+     *
+     * @param string $prefix Filename prefix to match.
+     *
+     * @return list<string> Paths of the matching files.
+     */
+    private function findFiles(string $prefix): array
+    {
+        $entries = $this->withoutFsWarnings(fn(): array|false => \scandir($this->path));
+        if ($entries === false) {
+            return [];
+        }
+
+        $files = [];
+        foreach ($entries as $entry) {
+            if (!\str_starts_with($entry, $prefix)) {
+                continue;
+            }
+
+            $files[] = $this->path . $entry;
+        }
+
+        return $files;
     }
 
     /**
@@ -186,16 +227,15 @@ class Cache
      */
     public function deleteOlderThan(int $seconds): void
     {
-        $pattern = $this->path . $this->prefix . '*';
-        $files = \glob($pattern);
-        if ($files === [] || $files === false) {
+        $files = $this->findFiles($this->prefix);
+        if ($files === []) {
             return;
         }
 
         $cutoff = \time() - $seconds;
 
         // Suppress warnings: filemtime()/unlink() may fail if a file disappears
-        // between glob() and the call (concurrent cleanup); such races are non-fatal.
+        // between the scan and the call (concurrent cleanup); such races are non-fatal.
         $this->withoutFsWarnings(static function () use ($files, $cutoff): void {
             foreach ($files as $file) {
                 $mtime = \filemtime($file);
@@ -232,6 +272,8 @@ class Cache
 
     /**
      * Set the K_PATH_CACHE constant (if not set) to the default system directory for temporary files
+     *
+     * @throws \Com\Tecnick\File\Exception when the system temporary directory cannot be resolved.
      */
     protected function defineSystemCachePath(): void
     {
@@ -249,13 +291,20 @@ class Cache
     /**
      * Normalize cache path
      *
+     * An unresolvable path must not be accepted: an empty $path makes tempnam()
+     * fall back to the system temp directory while delete() scans the current
+     * working directory, so cache files are written and searched for in two
+     * different places without any error being reported.
+     *
      * @param string $path Path to normalize
+     *
+     * @throws \Com\Tecnick\File\Exception when the path cannot be resolved.
      */
     protected function normalizePath(string $path): string
     {
         $rpath = \realpath($path);
         if ($rpath === false) {
-            return '';
+            throw new Exception('unable to resolve the cache directory: ' . $path);
         }
 
         if (!\str_ends_with($rpath, \DIRECTORY_SEPARATOR)) {

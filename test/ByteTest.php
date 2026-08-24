@@ -72,7 +72,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getByte($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -116,7 +116,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getUShort($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -127,7 +127,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getUFWord($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -170,7 +170,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getShort($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -181,7 +181,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getFWord($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -224,7 +224,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getULong($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -265,7 +265,7 @@ class ByteTest extends TestUtil
     {
         $byte = $this->getTestObject();
         $res = $byte->getLong($offset);
-        $this->assertEquals($expected, $res);
+        $this->assertSame($expected, $res);
     }
 
     /**
@@ -431,5 +431,135 @@ class ByteTest extends TestUtil
         $byte = new \Com\Tecnick\File\Byte("\x00\x01");
         $this->assertSame(0, $byte->getByte(0));
         $this->assertSame(1, $byte->getByte(1));
+    }
+
+    /**
+     * A negative offset must be rejected by every reader.
+     *
+     * PHP reads a negative string offset from the end of the string, so without
+     * the guard getByte(-1) would silently return the last byte instead of
+     * raising. Line coverage cannot see this: the upper-bound half of each
+     * condition is what the out-of-bounds tests above exercise.
+     *
+     * @param \Closure(\Com\Tecnick\File\Byte, int): (float|int) $read Reader invoker
+     *
+     * @throws \RangeException
+     */
+    #[DataProvider('readerMethodDataProvider')]
+    public function testNegativeOffsetThrows(\Closure $read): void
+    {
+        $byte = $this->getTestObject();
+
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches('/Out-of-bounds read/');
+        $read($byte, -1);
+    }
+
+    /**
+     * A large negative offset must be rejected too.
+     *
+     * @param \Closure(\Com\Tecnick\File\Byte, int): (float|int) $read Reader invoker
+     *
+     * @throws \RangeException
+     */
+    #[DataProvider('readerMethodDataProvider')]
+    public function testLargeNegativeOffsetThrows(\Closure $read): void
+    {
+        $byte = $this->getTestObject();
+
+        $this->expectException(\RangeException::class);
+        $read($byte, -1024);
+    }
+
+    /**
+     * Every public reader on Byte.
+     *
+     * Each reader is wrapped in a closure rather than named by string so the
+     * call stays statically checkable.
+     *
+     * @return array<string, array{\Closure(\Com\Tecnick\File\Byte, int): (float|int)}>
+     */
+    public static function readerMethodDataProvider(): array
+    {
+        return [
+            'getByte' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getByte($o),
+            ],
+            'getUShort' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getUShort($o),
+            ],
+            'getShort' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getShort($o),
+            ],
+            'getUFWord' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getUFWord($o),
+            ],
+            'getFWord' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getFWord($o),
+            ],
+            'getULong' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getULong($o),
+            ],
+            'getLong' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): int => $b->getLong($o),
+            ],
+            'getFixed' => [
+                /** @throws \RangeException */
+                static fn(\Com\Tecnick\File\Byte $b, int $o): float => $b->getFixed($o),
+            ],
+        ];
+    }
+
+    /**
+     * Every reader must reject any offset on a zero-length string.
+     *
+     * @param \Closure(\Com\Tecnick\File\Byte, int): (float|int) $read Reader invoker
+     *
+     * @throws \RangeException
+     */
+    #[DataProvider('readerMethodDataProvider')]
+    public function testEmptyStringThrows(\Closure $read): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('');
+
+        $this->assertSame(0, $byte->getLength());
+        $this->expectException(\RangeException::class);
+        $read($byte, 0);
+    }
+
+    /**
+     * @throws \RangeException
+     */
+    public function testGetLength(): void
+    {
+        $this->assertSame(0, (new \Com\Tecnick\File\Byte(''))->getLength());
+        $this->assertSame(3, (new \Com\Tecnick\File\Byte('abc'))->getLength());
+        // Binary safe: a NUL byte counts like any other.
+        $this->assertSame(4, (new \Com\Tecnick\File\Byte("a\x00bc"))->getLength());
+        $this->assertSame(24, $this->getTestObject()->getLength());
+    }
+
+    /**
+     * The exception message must name the offset, the requested length and the
+     * string length, so a caller can tell which read overran.
+     *
+     * @throws \RangeException
+     */
+    public function testOutOfBoundsMessageReportsTheRead(): void
+    {
+        $byte = new \Com\Tecnick\File\Byte('AB');
+
+        $this->expectException(\RangeException::class);
+        $this->expectExceptionMessageMatches(
+            '/^' . \preg_quote('Out-of-bounds read at offset 1 (length 4, string length 2)', '/') . '$/',
+        );
+        $byte->getULong(1);
     }
 }

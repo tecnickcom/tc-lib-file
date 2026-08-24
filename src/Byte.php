@@ -25,6 +25,10 @@ use RangeException;
  *
  * Function to read byte-level data
  *
+ * The 32-bit readers (getULong(), getLong(), getFixed()) assume a 64-bit PHP
+ * build: on a 32-bit build the intermediate left shift overflows the platform
+ * integer.
+ *
  * @since     2015-07-28
  * @category  Library
  * @package   File
@@ -61,6 +65,16 @@ readonly class Byte
         protected string $str,
     ) {
         $this->length = \strlen($str);
+    }
+
+    /**
+     * Get the length of the binary string in bytes.
+     *
+     * Lets a caller bounds-check a read instead of catching RangeException.
+     */
+    public function getLength(): int
+    {
+        return $this->length;
     }
 
     /**

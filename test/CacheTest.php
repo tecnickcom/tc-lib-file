@@ -32,17 +32,61 @@ use PHPUnit\Framework\Attributes\RunInSeparateProcess;
  */
 class CacheTest extends TestUtil
 {
+    /**
+     * Build a cache instance with a prefix unique to this test run.
+     *
+     * delete() and deleteOlderThan() act on every file carrying the instance
+     * prefix in the shared system temp directory, so a fixed prefix would make
+     * two concurrent runs delete each other's files and silently sweep up
+     * debris left by an earlier crashed run.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
     protected function getTestObject(): \Com\Tecnick\File\Cache
     {
-        return new \Com\Tecnick\File\Cache('1_2-a+B/c');
+        return new \Com\Tecnick\File\Cache('tclf' . \uniqid('', false));
     }
 
+    /**
+     * Delete a directory and everything directly inside it.
+     *
+     * @param string $dir Directory to remove.
+     */
+    private static function removeDirectory(string $dir): void
+    {
+        $entries = \scandir($dir);
+        if ($entries !== false) {
+            foreach (\array_diff($entries, ['.', '..']) as $entry) {
+                \unlink($dir . \DIRECTORY_SEPARATOR . $entry);
+            }
+        }
+
+        \rmdir($dir);
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetFilePrefixSanitizesUnsafeCharacters(): void
+    {
+        // '+' and '/' map to '-' and '_'; everything outside [A-Za-z0-9_-] is
+        // dropped. No file is created, so a fixed prefix is safe here.
+        $cache = new \Com\Tecnick\File\Cache('1_2-a+B/c');
+        $this->assertSame('_1_2-a-B_c_', $cache->getFilePrefix());
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testAutoPrefix(): void
     {
         $cache = new \Com\Tecnick\File\Cache();
         $this->assertNotEmpty($cache->getFilePrefix());
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testGetCachePath(): void
     {
         $cache = $this->getTestObject();
@@ -51,7 +95,7 @@ class CacheTest extends TestUtil
         $this->assertSame(\DIRECTORY_SEPARATOR, \substr($cachePath, -1));
 
         $cache->setCachePath();
-        $this->assertEquals($cachePath, $cache->getCachePath());
+        $this->assertSame($cachePath, $cache->getCachePath());
 
         // Use the real temp dir and compare realpath-to-realpath so the
         // assertion holds on every platform (e.g. macOS /var -> /private/var
@@ -66,11 +110,15 @@ class CacheTest extends TestUtil
         $this->assertSame($real . \DIRECTORY_SEPARATOR, $cache->getCachePath());
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testGetFilePrefix(): void
     {
         $cache = $this->getTestObject();
         $filePrefix = $cache->getFilePrefix();
-        $this->assertEquals('_1_2-a-B_c_', $filePrefix);
+        $this->assertStringStartsWith('_tclf', $filePrefix);
+        $this->assertStringEndsWith('_', $filePrefix);
     }
 
     /**
@@ -80,8 +128,14 @@ class CacheTest extends TestUtil
     {
         $cache = $this->getTestObject();
         $val = $cache->getNewFileName('tst', '0123');
-        $this->bcAssertMatchesRegularExpression('/_1_2-a-B_c_tst_0123_/', $val);
-        \unlink($val);
+
+        try {
+            $this->assertStringStartsWith($cache->getFilePrefix() . 'tst_0123_', \basename($val));
+        } finally {
+            if (\is_file($val)) {
+                \unlink($val);
+            }
+        }
     }
 
     /**
@@ -136,7 +190,15 @@ class CacheTest extends TestUtil
         }
     }
 
-    public function testNormalizePathInvalid(): void
+    /**
+     * An unresolvable cache directory must be reported, not accepted as ''.
+     * An empty path makes tempnam() fall back to the system temp directory
+     * while delete() scans the working directory, so files would be written
+     * and searched for in two different places with no error.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testNormalizePathInvalidThrows(): void
     {
         $cache = $this->getTestObject();
 
@@ -147,7 +209,112 @@ class CacheTest extends TestUtil
         $invalid = \sys_get_temp_dir() . '/nonexistent_' . \uniqid('', true);
         $this->assertFalse(\file_exists($invalid), 'Sanity check: path should not exist');
 
-        $this->assertSame('', $ref->invoke($cache, $invalid));
+        $this->expectException(\Com\Tecnick\File\Exception::class);
+        $ref->invoke($cache, $invalid);
+    }
+
+    /**
+     * A path that names a stream wrapper, is not a directory, or is not
+     * writable falls back to K_PATH_CACHE instead of being used.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSetCachePathRejectsUnusablePaths(): void
+    {
+        $cache = $this->getTestObject();
+        $fallback = $cache->getCachePath();
+
+        // A stream wrapper is never a usable cache directory.
+        $cache->setCachePath('php://memory');
+        $this->assertSame($fallback, $cache->getCachePath());
+
+        // A path that does not exist.
+        $cache->setCachePath(\sys_get_temp_dir() . '/missing_' . \uniqid('', true));
+        $this->assertSame($fallback, $cache->getCachePath());
+
+        // An existing file is not a directory.
+        $file = \tempnam(\sys_get_temp_dir(), 'tclf');
+        $this->assertNotFalse($file);
+
+        try {
+            $cache->setCachePath($file);
+            $this->assertSame($fallback, $cache->getCachePath());
+        } finally {
+            \unlink($file);
+        }
+    }
+
+    /**
+     * The filesystem root already ends with a separator, so normalizePath()
+     * must not append a second one.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testNormalizePathDoesNotDoubleTheTrailingSeparator(): void
+    {
+        $cache = $this->getTestObject();
+        $ref = new \ReflectionMethod($cache, 'normalizePath');
+
+        $root = \realpath(\DIRECTORY_SEPARATOR);
+        if ($root === false || !\str_ends_with($root, \DIRECTORY_SEPARATOR)) {
+            $this->markTestSkipped('the filesystem root does not resolve to a trailing separator here');
+        }
+
+        $this->assertSame($root, $ref->invoke($cache, \DIRECTORY_SEPARATOR));
+    }
+
+    /**
+     * A cache directory whose name contains glob metacharacters must still be
+     * searchable: a glob() pattern built from such a path silently matches
+     * nothing, so every cache file would leak.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteWorksWhenCachePathContainsGlobMetacharacters(): void
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf[' . \uniqid('', false) . ']*?';
+        $this->assertTrue(\mkdir($dir, 0o700));
+
+        try {
+            $cache = $this->getTestObject();
+            $cache->setCachePath($dir);
+            $real = \realpath($dir);
+            $this->assertNotFalse($real);
+            $this->assertSame($real . \DIRECTORY_SEPARATOR, $cache->getCachePath());
+
+            $file = $cache->getNewFileName('typ', 'key');
+            $this->assertTrue(\is_file($file));
+
+            $cache->delete();
+            $this->assertFalse(\file_exists($file), 'glob metacharacters in the cache path must not defeat delete()');
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
+    /**
+     * deleteOlderThan() shares the same directory scan, so it must survive a
+     * cache path containing glob metacharacters too.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteOlderThanWorksWhenCachePathContainsGlobMetacharacters(): void
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf[' . \uniqid('', false) . ']';
+        $this->assertTrue(\mkdir($dir, 0o700));
+
+        try {
+            $cache = $this->getTestObject();
+            $cache->setCachePath($dir);
+
+            $file = $cache->getNewFileName('aged', '1');
+            $this->assertTrue(\touch($file, \time() - 7200));
+
+            $cache->deleteOlderThan(3600);
+            $this->assertFalse(\file_exists($file));
+        } finally {
+            self::removeDirectory($dir);
+        }
     }
 
     /**
@@ -173,19 +340,23 @@ class CacheTest extends TestUtil
         $f2 = $file[2] ?? '';
         $f3 = $file[3] ?? '';
 
-        // delete a specific type/key pair
-        $cache->delete('2', '1');
-        $this->assertFalse(\file_exists($f2));
+        try {
+            // delete a specific type/key pair
+            $cache->delete('2', '1');
+            $this->assertFalse(\file_exists($f2));
 
-        // delete all entries for type "1"
-        $cache->delete('1');
-        $this->assertFalse(\file_exists($f0));
-        $this->assertFalse(\file_exists($f1));
-        $this->assertTrue(\file_exists($f3));
+            // delete all entries for type "1"
+            $cache->delete('1');
+            $this->assertFalse(\file_exists($f0));
+            $this->assertFalse(\file_exists($f1));
+            $this->assertTrue(\file_exists($f3));
 
-        // delete everything
-        $cache->delete();
-        $this->assertFalse(\file_exists($f3));
+            // delete everything
+            $cache->delete();
+            $this->assertFalse(\file_exists($f3));
+        } finally {
+            $cache->delete();
+        }
     }
 
     /**
@@ -198,9 +369,13 @@ class CacheTest extends TestUtil
         \file_put_contents($file, '');
         $this->assertTrue(\file_exists($file));
 
-        // key-only call should treat as delete all
-        $cache->delete(null, 'bar');
-        $this->assertFalse(\file_exists($file));
+        try {
+            // key-only call should treat as delete all
+            $cache->delete(null, 'bar');
+            $this->assertFalse(\file_exists($file));
+        } finally {
+            $cache->delete();
+        }
     }
 
     /**
@@ -213,17 +388,22 @@ class CacheTest extends TestUtil
         \file_put_contents($file, '');
         $this->assertTrue(\file_exists($file));
 
-        // deleting a type that does not exist should leave the file in place
-        $cache->delete('no-such-type');
-        $this->assertTrue(\file_exists($file));
+        try {
+            // deleting a type that does not exist should leave the file in place
+            $cache->delete('no-such-type');
+            $this->assertTrue(\file_exists($file));
 
-        // deleting a non-existent key under existing type
-        $cache->delete('foo', 'no-such-key');
-        $this->assertTrue(\file_exists($file));
-
-        \unlink($file);
+            // deleting a non-existent key under existing type
+            $cache->delete('foo', 'no-such-key');
+            $this->assertTrue(\file_exists($file));
+        } finally {
+            $cache->delete();
+        }
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testEachInstanceHasOwnPrefix(): void
     {
         // Each instance should have its own prefix
@@ -239,23 +419,28 @@ class CacheTest extends TestUtil
         $this->assertStringContainsString('pfx2', $prefix2);
     }
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testEachInstanceHasOwnCachePath(): void
     {
         $cache1 = new \Com\Tecnick\File\Cache();
         $path1 = $cache1->getCachePath();
 
         $tempdir = \sys_get_temp_dir() . '/cache_test_' . \uniqid();
-        \mkdir($tempdir);
+        $this->assertTrue(\mkdir($tempdir));
 
-        $cache2 = new \Com\Tecnick\File\Cache();
-        $cache2->setCachePath($tempdir);
-        $path2 = $cache2->getCachePath();
+        try {
+            $cache2 = new \Com\Tecnick\File\Cache();
+            $cache2->setCachePath($tempdir);
+            $path2 = $cache2->getCachePath();
 
-        // Paths should be different for each instance
-        $this->assertNotSame($path1, $path2);
-        $this->assertStringContainsString('cache_test_', $path2);
-
-        \rmdir($tempdir);
+            // Paths should be different for each instance
+            $this->assertNotSame($path1, $path2);
+            $this->assertStringContainsString('cache_test_', $path2);
+        } finally {
+            \rmdir($tempdir);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -267,21 +452,24 @@ class CacheTest extends TestUtil
      */
     public function testDeleteGlobCharsInTypeSanitised(): void
     {
-        $cache = new \Com\Tecnick\File\Cache('safepfx');
+        $cache = $this->getTestObject();
 
         // Create a real file we do NOT want deleted.
         $real = $cache->getNewFileName('safe', '1');
         \file_put_contents($real, '');
         $this->assertTrue(\file_exists($real));
 
-        // Call delete() with glob metacharacters in $type — must not expand.
-        $cache->delete('*', null);
+        try {
+            // Call delete() with glob metacharacters in $type — must not expand.
+            $cache->delete('*', null);
 
-        // The real file must still exist because '*' was stripped to '' and
-        // the resulting pattern matched nothing (or only unrelated files).
-        // If glob injection were possible every file would be gone.
-        $this->assertTrue(\file_exists($real), 'Glob injection via $type must not delete unrelated files');
-        \unlink($real);
+            // The real file must still exist because '*' was stripped to '' and
+            // the resulting prefix matched nothing (or only unrelated files).
+            // If metacharacter injection were possible every file would be gone.
+            $this->assertTrue(\file_exists($real), 'Metacharacters in $type must not delete unrelated files');
+        } finally {
+            $cache->delete();
+        }
     }
 
     /**
@@ -289,17 +477,20 @@ class CacheTest extends TestUtil
      */
     public function testDeleteGlobCharsInKeySanitised(): void
     {
-        $cache = new \Com\Tecnick\File\Cache('safepfx2');
+        $cache = $this->getTestObject();
 
         $real = $cache->getNewFileName('mytype', 'goodkey');
         \file_put_contents($real, '');
         $this->assertTrue(\file_exists($real));
 
-        // Inject glob metacharacter in $key — must be stripped.
-        $cache->delete('mytype', '?');
+        try {
+            // Inject a glob metacharacter in $key — must be stripped.
+            $cache->delete('mytype', '?');
 
-        $this->assertTrue(\file_exists($real), 'Glob injection via $key must not delete unrelated files');
-        \unlink($real);
+            $this->assertTrue(\file_exists($real), 'Metacharacters in $key must not delete unrelated files');
+        } finally {
+            $cache->delete();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -320,11 +511,14 @@ class CacheTest extends TestUtil
     // Issue 10: deleteOlderThan()
     // -------------------------------------------------------------------------
 
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteOlderThanNoFiles(): void
     {
-        // Call deleteOlderThan() when no files exist for this cache prefix.
-        // glob() returns [] so the early-return on line 171 is exercised.
-        $cache = new \Com\Tecnick\File\Cache('emptyprefix_' . \uniqid('', true));
+        // Call deleteOlderThan() when no files exist for this cache prefix, so
+        // the empty-result early return is exercised.
+        $cache = new \Com\Tecnick\File\Cache('emptyprefix' . \uniqid('', false));
         $cache->deleteOlderThan(3600);
         // No exception thrown is the expected outcome.
         $this->expectNotToPerformAssertions();
@@ -333,25 +527,37 @@ class CacheTest extends TestUtil
     /**
      * @throws \Com\Tecnick\File\Exception
      */
+    public function testDeleteNoFiles(): void
+    {
+        $cache = new \Com\Tecnick\File\Cache('emptyprefix' . \uniqid('', false));
+        $cache->delete();
+        $this->expectNotToPerformAssertions();
+    }
+
+    /**
+     * @throws \Com\Tecnick\File\Exception
+     */
     public function testDeleteOlderThan(): void
     {
-        $cache = new \Com\Tecnick\File\Cache('ttl');
+        $cache = $this->getTestObject();
 
         $old = $cache->getNewFileName('aged', '1');
         $fresh = $cache->getNewFileName('aged', '2');
         \file_put_contents($old, '');
         \file_put_contents($fresh, '');
 
-        // Back-date the "old" file to 2 hours ago.
-        \touch($old, \time() - 7200);
+        try {
+            // Back-date the "old" file to 2 hours ago.
+            \touch($old, \time() - 7200);
 
-        // Delete files older than 1 hour.
-        $cache->deleteOlderThan(3600);
+            // Delete files older than 1 hour.
+            $cache->deleteOlderThan(3600);
 
-        $this->assertFalse(\file_exists($old), 'Expired file must be deleted');
-        $this->assertTrue(\file_exists($fresh), 'Fresh file must be kept');
-
-        \unlink($fresh);
+            $this->assertFalse(\file_exists($old), 'Expired file must be deleted');
+            $this->assertTrue(\file_exists($fresh), 'Fresh file must be kept');
+        } finally {
+            $cache->delete();
+        }
     }
 
     /**

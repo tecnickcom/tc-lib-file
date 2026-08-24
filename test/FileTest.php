@@ -91,7 +91,15 @@ class FileTest extends TestUtil
         }
 
         $docRoot = __DIR__ . '/http';
-        $cmd = \sprintf('php -S 127.0.0.1:%d -t %s', $port, \escapeshellarg($docRoot));
+
+        // Pass the command as an array so proc_open() execs the binary directly.
+        // A string command runs '/bin/sh -c ...', which forks php as a separate
+        // grandchild: proc_terminate() would then only reach the shell, leaving
+        // an orphaned server that holds the run's inherited stdout pipe open and
+        // stalls the surrounding CI step until its timeout.
+        // PHP_BINARY is the interpreter running this suite; a bare 'php' would
+        // resolve through PATH to a possibly different build.
+        $cmd = [\PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $docRoot];
 
         $descriptors = [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']];
         $serverPipes = [];
@@ -154,8 +162,8 @@ class FileTest extends TestUtil
      * Stop the spawned HTTP server without letting proc_close() block.
      *
      * proc_close() waits for the child to exit, so a child that ignores SIGTERM
-     * would hang the run. Escalate to SIGKILL while it is still running so the
-     * close can never block.
+     * would hang the run. Give the child a bounded window to exit on SIGTERM,
+     * then escalate to SIGKILL so the close can never block.
      *
      * @param resource $proc Process handle from proc_open().
      */
@@ -166,17 +174,130 @@ class FileTest extends TestUtil
         }
 
         \proc_terminate($proc); // SIGTERM
-        $status = \proc_get_status($proc);
-        if ($status['running']) {
+
+        // Poll for up to ~1 s: proc_get_status() called immediately after
+        // proc_terminate() always reports the child as still running, which
+        // would make the SIGTERM path dead code and always escalate.
+        for ($i = 0; $i < 100; $i++) {
+            if (!\proc_get_status($proc)['running']) {
+                break;
+            }
+
+            \usleep(10_000);
+        }
+
+        if (\proc_get_status($proc)['running']) {
             \proc_terminate($proc, 9); // SIGKILL
         }
 
         \proc_close($proc);
     }
 
+    /**
+     * Snapshot of the $_SERVER entries the alt-path tests overwrite.
+     *
+     * Only string values are recorded: the alt-path helpers act on these keys
+     * exclusively when is_string() holds, so any other type is equivalent to
+     * the key being absent.
+     *
+     * @var array<string, string|null>
+     */
+    private array $serverBackup = [];
+
+    /**
+     * Keys of $_SERVER that individual tests set to drive the alt-path helpers.
+     */
+    private const SERVER_KEYS = ['DOCUMENT_ROOT', 'HTTP_HOST', 'HTTPS', 'SCRIPT_URI'];
+
+    /**
+     * Capture the request-metadata entries before each test.
+     *
+     * These are process-global, so without an explicit restore every test that
+     * sets them leaks that value into the rest of the run: the suite would pass
+     * only in declaration order and break under --order-by=random or a single
+     * --filter. This runs alongside the backupGlobals setting in
+     * phpunit.xml.dist so the guarantee does not depend on that flag.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        foreach (self::SERVER_KEYS as $key) {
+            $value = $_SERVER[$key] ?? null;
+            $this->serverBackup[$key] = \is_string($value) ? $value : null;
+        }
+    }
+
+    /**
+     * Restore the request-metadata entries captured in setUp().
+     */
+    protected function tearDown(): void
+    {
+        foreach ($this->serverBackup as $key => $value) {
+            if ($value === null) {
+                unset($_SERVER[$key]);
+                continue;
+            }
+
+            $_SERVER[$key] = $value;
+        }
+
+        parent::tearDown();
+    }
+
     protected function getTestObject(): \Com\Tecnick\File\File
     {
         return new \Com\Tecnick\File\File();
+    }
+
+    /**
+     * Create a symlink, reporting failure instead of warning.
+     *
+     * Windows without developer mode and some hardened containers refuse
+     * symlink(); the caller skips the test in that case. The linter forbids the
+     * '@' operator, so the warning is swallowed with an error handler.
+     *
+     * @param string $target Existing path the link points to.
+     * @param string $link   Path of the link to create.
+     */
+    private static function trySymlink(string $target, string $link): bool
+    {
+        \set_error_handler(static fn(): bool => true);
+
+        try {
+            return \symlink($target, $link);
+        } finally {
+            \restore_error_handler();
+        }
+    }
+
+    /**
+     * Skip a test that needs the local HTTP server, unless we are on CI.
+     *
+     * Every real-transfer path of getUrlData() (size-limit abort, redirect
+     * validation, the success path) depends on this server. Letting those tests
+     * skip silently on CI would leave the whole remote-fetch surface untested
+     * behind a green build, which is how issue #13 stayed hidden. Set
+     * TC_LIB_FILE_SKIP_HTTP_SERVER to opt out deliberately.
+     */
+    private function requireLocalHttpServer(): void
+    {
+        if (self::$serverPort !== 0 && \function_exists('curl_init')) {
+            return;
+        }
+
+        $ci = \getenv('CI');
+        $optOut = \getenv('TC_LIB_FILE_SKIP_HTTP_SERVER');
+        $optedOut = $optOut !== false && $optOut !== '' && $optOut !== '0';
+
+        if ($ci !== false && $ci !== '' && $ci !== '0' && !$optedOut) {
+            self::fail(
+                'Local HTTP server not available on CI. The remote-transfer tests must run there; '
+                . 'set TC_LIB_FILE_SKIP_HTTP_SERVER=1 to opt out deliberately.',
+            );
+        }
+
+        $this->markTestSkipped('Local HTTP server not available');
     }
 
     /**
@@ -186,7 +307,7 @@ class FileTest extends TestUtil
     {
         $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
         $handle = $file->fopenLocal(__FILE__, 'r');
-        $this->bcAssertIsResource($handle);
+        $this->assertIsResource($handle);
         \fclose($handle);
     }
 
@@ -195,7 +316,7 @@ class FileTest extends TestUtil
      */
     public function testFopenLocalNonLocal(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fopenLocal('http://www.example.com/test.txt', 'r');
     }
@@ -205,7 +326,7 @@ class FileTest extends TestUtil
      */
     public function testFopenLocalMissing(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fopenLocal('/missing_error.txt', 'r');
     }
@@ -215,7 +336,7 @@ class FileTest extends TestUtil
      */
     public function testFopenLocalOpenFailureAfterValidation(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
         $file->fopenLocal('/definitely-missing-' . \uniqid('', true) . '.txt', 'r');
     }
@@ -225,7 +346,7 @@ class FileTest extends TestUtil
      */
     public function testFopenLocalDoubleDot(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fopenLocal('/tmp/invalid/../test.txt', 'r');
     }
@@ -240,7 +361,7 @@ class FileTest extends TestUtil
         $this->assertNotFalse($handle);
         $res = $file->fReadInt($handle);
         // '<?ph' = 60 63 112 104 = 00111100 00111111 01110000 01101000 = 1010790504
-        $this->assertEquals(1_010_790_504, $res);
+        $this->assertSame(1_010_790_504, $res);
         \fclose($handle);
     }
 
@@ -249,16 +370,20 @@ class FileTest extends TestUtil
      */
     public function testfReadIntReadFailureException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
 
         $tmp = \tempnam(\sys_get_temp_dir(), 'tc');
         $this->assertNotFalse($tmp);
         $handle = \fopen($tmp, 'w');
         $this->assertNotFalse($handle);
-        $file->fReadInt($handle);
-        \fclose($handle);
-        \unlink($tmp);
+
+        try {
+            $file->fReadInt($handle);
+        } finally {
+            \fclose($handle);
+            \unlink($tmp);
+        }
     }
 
     /**
@@ -271,7 +396,8 @@ class FileTest extends TestUtil
     public function testFReadIntPartialReadStream(): void
     {
         $wrapperName = 'tcsinglebyteint';
-        if (!\in_array($wrapperName, \stream_get_wrappers(), true)) {
+        $registered = !\in_array($wrapperName, \stream_get_wrappers(), true);
+        if ($registered) {
             \stream_wrapper_register($wrapperName, SingleByteStreamWrapper::class);
         }
 
@@ -286,7 +412,11 @@ class FileTest extends TestUtil
             $this->assertSame($expected, $res);
         } finally {
             \fclose($handle);
-            \stream_wrapper_unregister($wrapperName);
+            // Only unregister what this test registered, so a wrapper installed
+            // by the surrounding environment is left in place.
+            if ($registered) {
+                \stream_wrapper_unregister($wrapperName);
+            }
         }
     }
 
@@ -298,7 +428,7 @@ class FileTest extends TestUtil
      */
     public function testFReadIntTruncatedStreamThrows(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
 
         $tmp = \tempnam(\sys_get_temp_dir(), 'tc');
@@ -324,9 +454,9 @@ class FileTest extends TestUtil
         $handle = \fopen(\dirname(__DIR__) . '/src/File.php', 'rb');
         $this->assertNotFalse($handle);
         $res = $file->rfRead($handle, 2);
-        $this->assertEquals('<?', $res);
+        $this->assertSame('<?', $res);
         $res = $file->rfRead($handle, 3);
-        $this->assertEquals('php', $res);
+        $this->assertSame('php', $res);
         \fclose($handle);
     }
 
@@ -335,7 +465,7 @@ class FileTest extends TestUtil
      */
     public function testRfReadException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->rfRead(null, 2);
     }
@@ -345,7 +475,7 @@ class FileTest extends TestUtil
      */
     public function testRfReadClosedHandleException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $handle = \fopen(__FILE__, 'rb');
         // ensure static analyzers know fopen succeeded
@@ -361,15 +491,19 @@ class FileTest extends TestUtil
      */
     public function testRfReadZeroLength(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $handle = \fopen(__FILE__, 'rb');
         $this->assertNotFalse($handle);
-        // length 0: the while-loop condition (0 < 0) is immediately false,
-        // so $data stays empty and FileException is thrown.
-        $rfm = new \ReflectionMethod($file, 'rfRead');
-        $rfm->invoke($file, $handle, 0);
-        \fclose($handle);
+
+        try {
+            // length 0: the while-loop condition (0 < 0) is immediately false,
+            // so $data stays empty and FileException is thrown.
+            $rfm = new \ReflectionMethod($file, 'rfRead');
+            $rfm->invoke($file, $handle, 0);
+        } finally {
+            \fclose($handle);
+        }
     }
 
     /**
@@ -384,21 +518,25 @@ class FileTest extends TestUtil
         $handle = \fopen($tmp, 'rb');
         $this->assertNotFalse($handle);
         $res = $file->rfRead($handle, 10);
-        $this->assertEquals('xy', $res);
+        $this->assertSame('xy', $res);
         \fclose($handle);
         \unlink($tmp);
     }
 
     /**
+     * A wrapper whose stream_read() returns less than requested must still be
+     * drained by rfRead() up to the requested length.
+     *
      * @throws \Com\Tecnick\File\Exception
      */
     public function testRfReadRecursiveBufferedStream(): void
     {
-        if (!\in_array('tcreadpartial', \stream_get_wrappers(), true)) {
+        $registered = !\in_array('tcreadpartial', \stream_get_wrappers(), true);
+        if ($registered) {
             \stream_wrapper_register('tcreadpartial', RecursiveReadStreamWrapper::class);
         }
 
-        $file = new RecursiveReadFile();
+        $file = $this->getTestObject();
         $handle = \fopen('tcreadpartial://buffered', 'rb');
         $this->assertNotFalse($handle);
 
@@ -407,23 +545,9 @@ class FileTest extends TestUtil
             $this->assertSame('abcde', $res);
         } finally {
             \fclose($handle);
-            \stream_wrapper_unregister('tcreadpartial');
-        }
-    }
-
-    public function testHasUnreadBytes(): void
-    {
-        $file = $this->getTestObject();
-        $handle = \fopen(\dirname(__DIR__) . '/src/File.php', 'rb');
-        $this->assertNotFalse($handle);
-
-        try {
-            $this->assertSame('<?', \fread($handle, 2));
-
-            $rfm = new \ReflectionMethod($file, 'hasUnreadBytes');
-            $this->assertTrue($rfm->invoke($file, $handle) === true);
-        } finally {
-            \fclose($handle);
+            if ($registered) {
+                \stream_wrapper_unregister('tcreadpartial');
+            }
         }
     }
 
@@ -440,7 +564,7 @@ class FileTest extends TestUtil
         $_SERVER['HTTPS'] = 'on';
         $_SERVER['SCRIPT_URI'] = 'https://localhost/path/example.php';
         $alt = $testObj->getAltFilePaths($file);
-        $this->assertEquals($expected, $alt);
+        $this->assertSame($expected, $alt);
     }
 
     /**
@@ -544,7 +668,7 @@ class FileTest extends TestUtil
      */
     public function testFileGetContentsMissingException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fileGetContents('missing.txt');
     }
@@ -554,7 +678,7 @@ class FileTest extends TestUtil
      */
     public function testFileGetContentsDoubleDotException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fileGetContents('/tmp/something/../test.txt');
     }
@@ -564,7 +688,7 @@ class FileTest extends TestUtil
      */
     public function testFileGetContentsForbiddenProtocolException(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fileGetContents('phar://test.txt');
     }
@@ -576,7 +700,7 @@ class FileTest extends TestUtil
     {
         $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
         $res = $file->fileGetContents(__FILE__);
-        $this->assertEquals('<?php', \substr($res, 0, 5));
+        $this->assertSame('<?php', \substr($res, 0, 5));
     }
 
     /**
@@ -584,7 +708,7 @@ class FileTest extends TestUtil
      */
     public function testFileGetContentsCurl(): void
     {
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file = $this->getTestObject();
         $file->fileGetContents('http://www.example.com/test.txt');
     }
@@ -600,6 +724,93 @@ class FileTest extends TestUtil
         $file = $this->getTestObject();
         $file->setMaxRemoteSize(1048576); // 1MB
         $this->assertSame(1048576, $file->getMaxRemoteSize());
+    }
+
+    /**
+     * Every setter declares `: static`, so each must return the instance for
+     * chaining.
+     */
+    public function testAllSettersAreFluent(): void
+    {
+        $file = $this->getTestObject();
+
+        $this->assertSame($file, $file->setCurlOpts([CURLOPT_TIMEOUT => 5]));
+        $this->assertSame($file, $file->setMaxRemoteSize(1024));
+        $this->assertSame($file, $file->setCaseSensitivePaths(true));
+        $this->assertSame($file, $file->setAllowedHosts(['example.com']));
+        $this->assertSame($file, $file->setAllowedPaths(['*']));
+
+        // Chained, the configuration must actually take effect.
+        $configured = $this
+            ->getTestObject()
+            ->setMaxRemoteSize(2048)
+            ->setAllowedHosts(['example.com'])
+            ->setAllowedPaths(['*']);
+
+        $this->assertSame(2048, $configured->getMaxRemoteSize());
+        $this->assertTrue($configured->isAllowedUrl('https://example.com/a'));
+        $this->assertTrue($configured->isAllowedFile(__FILE__));
+    }
+
+    /**
+     * getFileData() tries the local path first and falls back to the remote
+     * fetch. It is public API, so the fallback is asserted directly rather than
+     * only through fileGetContents().
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetFileDataFallsBackFromLocalToRemote(): void
+    {
+        // A readable local file never reaches the remote branch, even with no
+        // host allowlisted.
+        $local = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+        $data = $local->getFileData(__FILE__);
+        $this->assertIsString($data);
+        $this->assertStringStartsWith('<?php', $data);
+
+        // A path that is not a valid local file falls through to getUrlData(),
+        // which rejects the non-allowlisted host and returns false.
+        $remote = $this->getTestObject();
+        $this->assertFalse($remote->getFileData('https://example.com/missing.txt'));
+
+        // Neither local nor remote: still false, no exception.
+        $this->assertFalse($remote->getFileData('definitely-missing-' . \uniqid('', true) . '.txt'));
+    }
+
+    /**
+     * getFileData() reaches the remote branch and returns the body when the
+     * host is allowlisted.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetFileDataReadsRemoteBody(): void
+    {
+        $this->requireLocalHttpServer();
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+        $this->assertSame('', $file->getFileData('http://127.0.0.1:' . self::$serverPort . '/empty.php'));
+    }
+
+    /**
+     * With the default CURLOPT_MAXREDIRS of 0 no redirect-validation callback
+     * is installed, and cURL refuses to follow the redirect rather than
+     * silently returning the redirect body.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetUrlDataDoesNotFollowRedirectsByDefault(): void
+    {
+        $this->requireLocalHttpServer();
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+        $url = 'http://127.0.0.1:' . self::$serverPort . '/redirect.php?to=/empty.php';
+
+        $ref = new \ReflectionClassConstant(\Com\Tecnick\File\File::class, 'CURLOPT_DEFAULT');
+        /** @var array<int, mixed> $defaults */
+        $defaults = $ref->getValue();
+        $this->assertSame(0, $defaults[CURLOPT_MAXREDIRS] ?? null);
+
+        $this->assertFalse($file->getUrlData($url));
     }
 
     public function testSetAllowedHostsIsFluentAndUsedByValidator(): void
@@ -707,7 +918,12 @@ class FileTest extends TestUtil
         $this->assertSame($missing, $file->resolveLocalPath($missing, ['', $invalidBase]));
     }
 
-    public function testHasDoubleDots(): void
+    /**
+     * @param string $path     Path to check
+     * @param bool   $expected Whether the path holds a parent-directory segment
+     */
+    #[DataProvider('hasDoubleDotsDataProvider')]
+    public function testHasDoubleDots(string $path, bool $expected): void
     {
         $file = new class() extends \Com\Tecnick\File\File {
             public function hasDoubleDotsProxy(string $path): bool
@@ -716,10 +932,83 @@ class FileTest extends TestUtil
             }
         };
 
-        $res = $file->hasDoubleDotsProxy('/tmp/../test.txt');
-        $this->assertTrue($res);
-        $res = $file->hasDoubleDotsProxy('/tmp/test.txt');
-        $this->assertFalse($res);
+        $this->assertSame($expected, $file->hasDoubleDotsProxy($path), $path);
+    }
+
+    /**
+     * Traversal vectors that must be rejected, and legitimate names that must not be.
+     *
+     * hasDoubleDots() decodes percent-encoded dots and separators plus HTML
+     * entities before testing each path segment, so every encoding of a '..'
+     * segment has to resolve to a rejection.
+     *
+     * @return array<string, array{string, bool}>
+     */
+    public static function hasDoubleDotsDataProvider(): array
+    {
+        return [
+            'plain traversal' => ['/var/data/../test.txt', true],
+            'leading traversal' => ['../test.txt', true],
+            'trailing traversal' => ['/var/data/..', true],
+            'backslash traversal' => ['\\var\\data\\..\\test.txt', true],
+            'windows drive traversal' => ['C:..\\test.txt', true],
+            'encoded dots lower' => ['/var/%2e%2e/test.txt', true],
+            'encoded dots upper' => ['/var/%2E%2E/test.txt', true],
+            'encoded separator' => ['..%2Ftest.txt', true],
+            'encoded backslash separator' => ['..%5Ctest.txt', true],
+            'fully encoded segment' => ['%2E%2E%2Ftest.txt', true],
+            'html entity dots' => ['/var/&period;&period;/test.txt', true],
+            'html entity separator' => ['..&sol;test.txt', true],
+            // A double-encoded sequence names a literal directory ('%2e%2e'):
+            // one decode short of '..', so it does not traverse. The alt-path
+            // helpers decode once more, and isValidFile() re-checks the result.
+            'double encoded' => ['/var/%252e%252e/test.txt', false],
+            'plain path' => ['/var/data/test.txt', false],
+            'dotfile' => ['/var/data/.hidden', false],
+            'single dot segment' => ['/var/./data/test.txt', false],
+            'dots inside filename' => ['/var/data/report..2024.txt', false],
+            'dots inside filename encoded' => ['/var/data/report%2E%2E2024.txt', false],
+            'four dots segment' => ['/var/data/..../test.txt', false],
+            'windows drive path' => ['C:/var/data/test.txt', false],
+            'empty' => ['', false],
+        ];
+    }
+
+    /**
+     * Traversal vectors must be rejected through the public entry points too,
+     * not only by the protected segment check.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testTraversalRejectedByPublicEntryPoints(): void
+    {
+        $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, ['*']);
+
+        foreach (['/var/data/../test.txt', '/var/%2e%2e/test.txt', '..%2Ftest.txt'] as $path) {
+            $this->assertFalse($file->isAllowedFile($path), $path);
+            $this->assertFalse($file->getLocalFileData($path), $path);
+        }
+    }
+
+    /**
+     * A filename that merely contains two consecutive dots is a valid name and
+     * must be readable through the public entry points.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testFilenameContainingDoubleDotsIsReadable(): void
+    {
+        $dir = \sys_get_temp_dir();
+        $path = $dir . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true) . '..2024.txt';
+        $this->assertNotFalse(\file_put_contents($path, 'payload'));
+
+        try {
+            $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$dir]);
+            $this->assertTrue($file->isAllowedFile($path));
+            $this->assertSame('payload', $file->fileGetContents($path));
+        } finally {
+            \unlink($path);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -734,6 +1023,231 @@ class FileTest extends TestUtil
         $this->assertArrayHasKey(CURLOPT_REDIR_PROTOCOLS, $opts);
         // Only HTTP/HTTPS allowed for redirects — no FTP.
         $this->assertSame(CURLPROTO_HTTPS | CURLPROTO_HTTP, $opts[CURLOPT_REDIR_PROTOCOLS] ?? null);
+    }
+
+    /**
+     * The protocol restriction must survive the swap to the string options that
+     * replace the deprecated CURLOPT_PROTOCOLS pair on libcurl 7.85+.
+     */
+    public function testDefaultCurlOptionsRestrictProtocols(): void
+    {
+        $rfm = new \ReflectionMethod(\Com\Tecnick\File\File::class, 'defaultCurlOptions');
+        /** @var array<int, mixed> $opts */
+        $opts = $rfm->invoke(null);
+
+        if (\defined('CURLOPT_PROTOCOLS_STR') && \defined('CURLOPT_REDIR_PROTOCOLS_STR')) {
+            $this->assertSame('http,https', $opts[CURLOPT_PROTOCOLS_STR] ?? null);
+            $this->assertSame('http,https', $opts[CURLOPT_REDIR_PROTOCOLS_STR] ?? null);
+            // The deprecated pair must not be sent alongside the replacement.
+            $this->assertArrayNotHasKey(CURLOPT_PROTOCOLS, $opts);
+            $this->assertArrayNotHasKey(CURLOPT_REDIR_PROTOCOLS, $opts);
+            return;
+        }
+
+        $this->assertSame(CURLPROTO_HTTPS | CURLPROTO_HTTP, $opts[CURLOPT_PROTOCOLS] ?? null);
+        $this->assertSame(CURLPROTO_HTTPS | CURLPROTO_HTTP, $opts[CURLOPT_REDIR_PROTOCOLS] ?? null);
+    }
+
+    /**
+     * Hostnames are case-insensitive (RFC 4343), so allowlist matching must not
+     * depend on the case or a trailing root dot of either operand.
+     *
+     * @param string $allowed  Allowlist entry
+     * @param string $url      URL to validate
+     * @param bool   $expected Expected validation result
+     */
+    #[DataProvider('hostCaseDataProvider')]
+    public function testHostAllowlistMatchingIsCaseInsensitive(string $allowed, string $url, bool $expected): void
+    {
+        $file = new \Com\Tecnick\File\File([$allowed]);
+        $this->assertSame($expected, $file->isAllowedUrl($url), $url);
+    }
+
+    /**
+     * @return array<string, array{string, string, bool}>
+     */
+    public static function hostCaseDataProvider(): array
+    {
+        return [
+            'exact' => ['example.com', 'https://example.com/a', true],
+            'uppercase url' => ['example.com', 'https://EXAMPLE.COM/a', true],
+            'mixed case url' => ['example.com', 'https://Example.Com/a', true],
+            'uppercase allowlist' => ['EXAMPLE.COM', 'https://example.com/a', true],
+            'mixed case both' => ['ExAmPlE.cOm', 'https://eXaMpLe.CoM/a', true],
+            'trailing root dot url' => ['example.com', 'https://example.com./a', true],
+            'trailing root dot allowlist' => ['example.com.', 'https://example.com/a', true],
+            'padded allowlist entry' => ['  example.com  ', 'https://example.com/a', true],
+            'different host' => ['example.com', 'https://evil.com/a', false],
+            'suffix is not a match' => ['example.com', 'https://notexample.com/a', false],
+            'subdomain is not a match' => ['example.com', 'https://sub.example.com/a', false],
+            // parse_url() reports the port separately, so a URL matches on host
+            // alone: the allowlist constrains the host, not the port. The port
+            // is part of an HTTP_HOST value and is covered separately below.
+            'url port is not part of the host' => ['example.com', 'https://example.com:8080/a', true],
+        ];
+    }
+
+    /**
+     * $_SERVER['HTTP_HOST'] carries the port when it is non-default and is
+     * matched as a whole, so an allowlist entry has to include the port to
+     * enable the HTTP_HOST-driven alt-path helpers on that origin.
+     */
+    public function testHttpHostAllowlistIncludesThePort(): void
+    {
+        $withoutPort = new \Com\Tecnick\File\File(['example.com']);
+        $rfm = new \ReflectionMethod($withoutPort, 'isValidHost');
+        $this->assertFalse($rfm->invoke($withoutPort, 'example.com:8080'));
+        $this->assertTrue($rfm->invoke($withoutPort, 'example.com'));
+
+        $withPort = new \Com\Tecnick\File\File(['example.com:8080']);
+        $rfm = new \ReflectionMethod($withPort, 'isValidHost');
+        $this->assertTrue($rfm->invoke($withPort, 'example.com:8080'));
+        $this->assertTrue($rfm->invoke($withPort, 'EXAMPLE.COM:8080'));
+        $this->assertFalse($rfm->invoke($withPort, 'example.com'));
+    }
+
+    /**
+     * A SCRIPT_URI on a non-default port must keep that port in the candidate
+     * URL: dropping it would name the default port of the same host, which is
+     * a different origin.
+     */
+    public function testGetAltUrlFromPathPreservesTheScriptUriPort(): void
+    {
+        $_SERVER['SCRIPT_URI'] = 'https://myapp.example.com:8443/app/script.php';
+
+        $file = new \Com\Tecnick\File\File(['myapp.example.com']);
+        $rfm = new \ReflectionMethod($file, 'getAltUrlFromPath');
+
+        $this->assertSame('https://myapp.example.com:8443/data/file.txt', $rfm->invoke($file, 'data/file.txt'));
+    }
+
+    public function testSetAllowedHostsNormalizesEntries(): void
+    {
+        $file = $this->getTestObject();
+        $file->setAllowedHosts(['CDN.Example.COM', 'cdn.example.com.', '']);
+
+        $this->assertTrue($file->isAllowedUrl('https://cdn.example.com/img.png'));
+        $this->assertFalse($file->isAllowedUrl('https://other.example.com/img.png'));
+    }
+
+    /**
+     * A public by-value validator must accept a literal: the by-reference
+     * isValidURL()/isValidFile() pair raises a fatal error for any argument
+     * that is not a variable.
+     */
+    public function testByValueValidatorsAcceptLiterals(): void
+    {
+        $file = new \Com\Tecnick\File\File(['example.com'], 52_428_800, [], null, null, ['*']);
+
+        $this->assertTrue($file->isAllowedUrl('https://example.com/a'));
+        $this->assertFalse($file->isAllowedUrl('https://evil.com/a'));
+        $this->assertTrue($file->isAllowedFile(__FILE__));
+        $this->assertFalse($file->isAllowedFile('../escape.txt'));
+    }
+
+    /**
+     * The by-value wrappers must leave the caller's variable untouched, unlike
+     * the by-reference methods they delegate to.
+     */
+    public function testByValueValidatorsDoNotMutateTheArgument(): void
+    {
+        $file = new \Com\Tecnick\File\File(['example.com'], 52_428_800, [], null, null, ['*']);
+
+        $url = '  https://example.com/a  ';
+        $this->assertTrue($file->isAllowedUrl($url));
+        $this->assertSame('  https://example.com/a  ', $url);
+
+        $path = __FILE__;
+        $this->assertTrue($file->isAllowedFile($path));
+        $this->assertSame(__FILE__, $path);
+
+        // The by-reference counterparts do rewrite their argument.
+        $refUrl = '  https://example.com/a  ';
+        $this->assertTrue($file->isValidURL($refUrl));
+        $this->assertSame('https://example.com/a', $refUrl);
+
+        $refPath = __FILE__;
+        $this->assertTrue($file->isValidFile($refPath));
+        $this->assertSame('file://' . __FILE__, $refPath);
+    }
+
+    /**
+     * An allowlist root that traverses a symlink must still match files inside
+     * it: isValidFile() compares the realpath() of the candidate, so the roots
+     * have to be canonicalized too.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSymlinkedAllowedRootMatchesFilesInside(): void
+    {
+        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        $real = $base . \DIRECTORY_SEPARATOR . 'real';
+        $link = $base . \DIRECTORY_SEPARATOR . 'link';
+
+        $this->assertTrue(\mkdir($real, 0o777, true));
+        if (!self::trySymlink($real, $link)) {
+            $this->markTestSkipped('symlink() not permitted in this environment');
+        }
+
+        $target = $real . \DIRECTORY_SEPARATOR . 'data.txt';
+        $this->assertNotFalse(\file_put_contents($target, 'payload'));
+
+        try {
+            // Root given as the symlink, file addressed through the symlink.
+            $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$link]);
+            $viaLink = $link . \DIRECTORY_SEPARATOR . 'data.txt';
+            $this->assertTrue($file->isAllowedFile($viaLink));
+            $this->assertSame('payload', $file->fileGetContents($viaLink));
+
+            // The same file addressed through its canonical path.
+            $this->assertTrue($file->isAllowedFile($target));
+
+            // A file outside the root is still rejected.
+            $outside = $base . \DIRECTORY_SEPARATOR . 'outside.txt';
+            $this->assertNotFalse(\file_put_contents($outside, 'nope'));
+            $this->assertFalse($file->isAllowedFile($outside));
+            \unlink($outside);
+        } finally {
+            \unlink($target);
+            \unlink($link);
+            \rmdir($real);
+            \rmdir($base);
+        }
+    }
+
+    /**
+     * A symlink inside a trusted root that points outside it must be rejected:
+     * canonicalization is what enforces the boundary.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSymlinkEscapingAllowedRootIsRejected(): void
+    {
+        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        $root = $base . \DIRECTORY_SEPARATOR . 'root';
+
+        $this->assertTrue(\mkdir($root, 0o777, true));
+        $secret = $base . \DIRECTORY_SEPARATOR . 'secret.txt';
+        $this->assertNotFalse(\file_put_contents($secret, 'secret'));
+
+        $escape = $root . \DIRECTORY_SEPARATOR . 'escape.txt';
+        if (!self::trySymlink($secret, $escape)) {
+            \unlink($secret);
+            \rmdir($root);
+            \rmdir($base);
+            $this->markTestSkipped('symlink() not permitted in this environment');
+        }
+
+        try {
+            $file = new \Com\Tecnick\File\File([], 52_428_800, [], null, null, [$root]);
+            $this->assertFalse($file->isAllowedFile($escape));
+            $this->assertFalse($file->getLocalFileData($escape));
+        } finally {
+            \unlink($escape);
+            \unlink($secret);
+            \rmdir($root);
+            \rmdir($base);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -760,17 +1274,39 @@ class FileTest extends TestUtil
         $testObj->setCurlOpts([
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_RETURNTRANSFER => false,
         ]);
 
-        // Get the fixed options to verify they are unaffected
-        $refProperty = new \ReflectionProperty($testObj, 'fixedCurlOpts');
-        /** @var array<int, mixed> $fixedOpts */
-        $fixedOpts = $refProperty->getValue($testObj);
+        // Assert on the merged result that getUrlData() actually hands to
+        // curl_setopt_array(): reading the untouched fixedCurlOpts property
+        // would pass even if the merge order were reversed.
+        $rfm = new \ReflectionMethod($testObj, 'mergeCurlOptions');
+        /** @var array<int, mixed> $merged */
+        $merged = $rfm->invoke($testObj, []);
 
-        // Verify fixed options still have strict verification enabled
-        // (they should override any custom options due to merge order in getUrlData)
-        $this->assertSame(2, $fixedOpts[CURLOPT_SSL_VERIFYHOST] ?? null);
-        $this->assertTrue(($fixedOpts[CURLOPT_SSL_VERIFYPEER] ?? null) === true);
+        $this->assertSame(2, $merged[CURLOPT_SSL_VERIFYHOST] ?? null);
+        $this->assertTrue($merged[CURLOPT_SSL_VERIFYPEER] ?? null);
+        $this->assertTrue($merged[CURLOPT_RETURNTRANSFER] ?? null);
+    }
+
+    public function testCustomCurlOptionsOverrideDefaultsButNotFixed(): void
+    {
+        $testObj = $this->getTestObject();
+        $testObj->setCurlOpts([
+            CURLOPT_TIMEOUT => 99,
+            CURLOPT_FAILONERROR => false,
+        ]);
+
+        $rfm = new \ReflectionMethod($testObj, 'mergeCurlOptions');
+        /** @var array<int, mixed> $merged */
+        $merged = $rfm->invoke($testObj, [CURLOPT_FOLLOWLOCATION => true]);
+
+        // A per-request option survives when no later layer sets it.
+        $this->assertTrue($merged[CURLOPT_FOLLOWLOCATION] ?? null);
+        // Custom options win over the defaults.
+        $this->assertSame(99, $merged[CURLOPT_TIMEOUT] ?? null);
+        // Fixed options win over the custom ones.
+        $this->assertTrue($merged[CURLOPT_FAILONERROR] ?? null);
     }
 
     // -------------------------------------------------------------------------
@@ -1101,7 +1637,8 @@ class FileTest extends TestUtil
     public function testRfReadSingleByteChunks(): void
     {
         $wrapperName = 'tcsinglebyte';
-        if (!\in_array($wrapperName, \stream_get_wrappers(), true)) {
+        $registered = !\in_array($wrapperName, \stream_get_wrappers(), true);
+        if ($registered) {
             \stream_wrapper_register($wrapperName, SingleByteStreamWrapper::class);
         }
 
@@ -1114,7 +1651,9 @@ class FileTest extends TestUtil
             $this->assertSame('abcd', $res);
         } finally {
             \fclose($handle);
-            \stream_wrapper_unregister($wrapperName);
+            if ($registered) {
+                \stream_wrapper_unregister($wrapperName);
+            }
         }
     }
 
@@ -1128,7 +1667,8 @@ class FileTest extends TestUtil
     public function testRfReadBreakOnEmptyChunk(): void
     {
         $wrapperName = 'tcemptyread';
-        if (!\in_array($wrapperName, \stream_get_wrappers(), true)) {
+        $registered = !\in_array($wrapperName, \stream_get_wrappers(), true);
+        if ($registered) {
             \stream_wrapper_register($wrapperName, EmptyReadStreamWrapper::class);
         }
 
@@ -1144,7 +1684,9 @@ class FileTest extends TestUtil
             $this->assertSame('ab', $res);
         } finally {
             \fclose($handle);
-            \stream_wrapper_unregister($wrapperName);
+            if ($registered) {
+                \stream_wrapper_unregister($wrapperName);
+            }
         }
     }
 
@@ -1221,17 +1763,39 @@ class FileTest extends TestUtil
 
         $rfm = new \ReflectionMethod($file, 'createRedirectValidationCallback');
 
+        // An empty Location value: aborts the transfer and flags the redirect.
         $invalidRedirect = false;
         $args = [&$invalidRedirect, 'https://allowed.example/start'];
         /** @var callable $callback */
         $callback = $rfm->invokeArgs($file, $args);
         $this->assertSame(0, $callback(null, "Location:   \r\n"));
+        // The flag, not the return value, is what getUrlData() consumes.
+        $this->assertTrue($invalidRedirect);
 
+        // A non-CurlHandle first argument: the effective URL cannot be read, so
+        // the target cannot be validated and the transfer is aborted.
         $invalidRedirect = false;
         $args = [&$invalidRedirect, 'https://allowed.example/start'];
         /** @var callable $callback */
         $callback = $rfm->invokeArgs($file, $args);
         $this->assertSame(0, $callback(null, "Location: /next\r\n"));
+        $this->assertTrue($invalidRedirect);
+    }
+
+    public function testRedirectValidationCallbackPassesThroughNonLocationHeaders(): void
+    {
+        $file = new \Com\Tecnick\File\File(['allowed.example']);
+
+        $rfm = new \ReflectionMethod($file, 'createRedirectValidationCallback');
+
+        $invalidRedirect = false;
+        $args = [&$invalidRedirect, 'https://allowed.example/start'];
+        /** @var callable $callback */
+        $callback = $rfm->invokeArgs($file, $args);
+
+        $header = "Content-Type: text/plain\r\n";
+        $this->assertSame(\strlen($header), $callback(null, $header));
+        $this->assertFalse($invalidRedirect);
     }
 
     // -------------------------------------------------------------------------
@@ -1243,9 +1807,7 @@ class FileTest extends TestUtil
      */
     public function testGetUrlDataWithValidRedirectWhenMaxRedirsEnabled(): void
     {
-        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
-            $this->markTestSkipped('Local HTTP server not available');
-        }
+        $this->requireLocalHttpServer();
 
         if ((string) \ini_get('open_basedir') !== '') {
             $this->markTestSkipped('Redirect-follow tests require open_basedir to be disabled');
@@ -1263,9 +1825,7 @@ class FileTest extends TestUtil
      */
     public function testGetUrlDataReturnsFalseOnInvalidRedirectWhenMaxRedirsEnabled(): void
     {
-        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
-            $this->markTestSkipped('Local HTTP server not available');
-        }
+        $this->requireLocalHttpServer();
 
         if ((string) \ini_get('open_basedir') !== '') {
             $this->markTestSkipped('Redirect-follow tests require open_basedir to be disabled');
@@ -1283,16 +1843,14 @@ class FileTest extends TestUtil
      */
     public function testGetUrlDataSizeExceeded(): void
     {
-        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
-            $this->markTestSkipped('Local HTTP server not available');
-        }
+        $this->requireLocalHttpServer();
 
         $file = new \Com\Tecnick\File\File(['127.0.0.1']);
         // Set a very small limit so the 1 000-byte response from large.php
         // triggers CURLE_ABORTED_BY_CALLBACK (errno 42).
         $file->setMaxRemoteSize(10);
 
-        $this->bcExpectException(\Com\Tecnick\File\Exception::class);
+        $this->expectException(\Com\Tecnick\File\Exception::class);
         $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/large.php');
     }
 
@@ -1301,9 +1859,7 @@ class FileTest extends TestUtil
      */
     public function testGetUrlDataReturnTrue(): void
     {
-        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
-            $this->markTestSkipped('Local HTTP server not available');
-        }
+        $this->requireLocalHttpServer();
 
         // Create a File instance with no fixed cURL options so that
         // CURLOPT_RETURNTRANSFER is not set.  curl_exec() then returns true
@@ -1325,9 +1881,7 @@ class FileTest extends TestUtil
      */
     public function testGetUrlDataWithAllowUrlFopenEnabled(): void
     {
-        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
-            $this->markTestSkipped('Local HTTP server not available');
-        }
+        $this->requireLocalHttpServer();
 
         if (\defined('FORCE_CURL')) {
             $this->markTestSkipped('FORCE_CURL is defined in this environment');

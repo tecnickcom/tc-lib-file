@@ -29,32 +29,4 @@ use PHPUnit\Framework\TestCase;
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-file
  */
-class TestUtil extends TestCase
-{
-    public function bcAssertEqualsWithDelta(
-        mixed $expected,
-        mixed $actual,
-        float $delta = 0.01,
-        string $message = '',
-    ): void {
-        parent::assertEqualsWithDelta($expected, $actual, $delta, $message);
-    }
-
-    /**
-     * @param class-string<\Throwable> $exception
-     */
-    public function bcExpectException(string $exception): void
-    {
-        parent::expectException($exception);
-    }
-
-    public function bcAssertIsResource(mixed $res): void
-    {
-        parent::assertIsResource($res);
-    }
-
-    public function bcAssertMatchesRegularExpression(string $pattern, string $string, string $message = ''): void
-    {
-        parent::assertMatchesRegularExpression($pattern, $string, $message);
-    }
-}
+abstract class TestUtil extends TestCase {}

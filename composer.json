@@ -1,6 +1,6 @@
 {
     "name": "tecnickcom/tc-lib-file",
-    "description": "PHP library to read byte-level data from files",
+    "description": "PHP library for safe low-level file access: byte-level reads, path allowlisting, file caching and directory lookup",
     "type": "library",
     "homepage": "https://tcpdf.org",
     "license": "LGPL-3.0-or-later",
@@ -28,7 +28,7 @@
         }
     ],
     "require": {
-        "php": ">=8.2",
+        "php": "^8.2",
         "ext-curl": "*",
         "ext-pcre": "*"
     },
@@ -41,6 +41,7 @@
         "sort-packages": true
     },
     "require-dev": {
+        "carthage-software/mago": "^1.47",
         "pdepend/pdepend": "^2.16",
         "phpunit/phpunit": "^11.5 || ^12.5 || ^13.3"
     },

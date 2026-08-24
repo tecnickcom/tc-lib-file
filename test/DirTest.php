@@ -38,20 +38,65 @@ class DirTest extends TestUtil
         return new \Com\Tecnick\File\Dir();
     }
 
-    #[DataProvider('getAltFilePathsDataProvider')]
-    public function testGetAltFilePaths(string $name, string $expected): void
+    /**
+     * @param string $name     Directory name to search for
+     * @param string $expected Expected exact return value of findParentDir()
+     */
+    #[DataProvider('findParentDirDataProvider')]
+    public function testFindParentDir(string $name, string $expected): void
     {
         $testObj = $this->getTestObject();
-        $dir = $testObj->findParentDir($name);
-        $this->bcAssertMatchesRegularExpression('#' . $expected . '#', $dir);
+        $this->assertSame($expected, $testObj->findParentDir($name));
     }
 
     /**
-     * @return array<array{string, string}>
+     * The default starting directory is src/, so an empty name resolves to it
+     * and 'src' resolves to the src/ inside the library root one level up.
+     *
+     * A name that exists nowhere up to the filesystem root returns '': the
+     * search reports "not found" with an empty string, which is the only value
+     * a caller can distinguish from a match at the root.
+     *
+     * @return array<string, array{string, string}>
      */
-    public static function getAltFilePathsDataProvider(): array
+    public static function findParentDirDataProvider(): array
     {
-        return [['', '/src/'], ['missing', '/'], ['src', '/src/']];
+        $srcDir = \dirname(__DIR__) . \DIRECTORY_SEPARATOR . 'src' . \DIRECTORY_SEPARATOR;
+
+        return [
+            'empty name resolves to the starting directory' => ['', $srcDir],
+            'name found while walking up' => ['src', $srcDir],
+            'name found nowhere' => ['missing_dir_' . \uniqid(), ''],
+        ];
+    }
+
+    /**
+     * A read-only directory of the right name is not a match: the search looks
+     * for a writable directory.
+     */
+    public function testFindParentDirRequiresWritableDirectory(): void
+    {
+        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        $target = $base . \DIRECTORY_SEPARATOR . 'cache';
+        $start = $target . \DIRECTORY_SEPARATOR . 'inner';
+
+        $this->assertTrue(\mkdir($start, 0o777, true));
+
+        try {
+            $this->assertSame($target . \DIRECTORY_SEPARATOR, $this->getTestObject()->findParentDir('cache', $start));
+
+            if (\function_exists('posix_geteuid') && \posix_geteuid() === 0) {
+                $this->markTestSkipped('running as root: permission bits are not enforced');
+            }
+
+            $this->assertTrue(\chmod($target, 0o555));
+            $this->assertSame('', $this->getTestObject()->findParentDir('cache', $start));
+        } finally {
+            \chmod($target, 0o777);
+            \rmdir($start);
+            \rmdir($target);
+            \rmdir($base);
+        }
     }
 
     /**
@@ -84,6 +129,9 @@ class DirTest extends TestUtil
         }
 
         $this->assertSame([], $warnings, 'open_basedir restriction must not raise warnings');
-        $this->bcAssertMatchesRegularExpression('#/$#', $dir);
+        // The name exists nowhere under the restriction, and every ancestor
+        // outside it is skipped rather than probed, so the search reports
+        // "not found".
+        $this->assertSame('', $dir);
     }
 }
