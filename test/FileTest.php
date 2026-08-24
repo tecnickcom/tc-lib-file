@@ -49,12 +49,6 @@ class FileTest extends TestUtil
      */
     public static function setUpBeforeClass(): void
     {
-        // Ensure FORCE_CURL is defined so that getUrlData() proceeds even
-        // when allow_url_fopen is enabled in the test environment.
-        if (!\defined('FORCE_CURL')) {
-            \define('FORCE_CURL', true);
-        }
-
         if (!\function_exists('curl_init')) {
             return;
         }
@@ -1320,6 +1314,32 @@ class FileTest extends TestUtil
         $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/empty.php');
         \ob_end_clean();
 
+        $this->assertSame('', $result);
+    }
+
+    /**
+     * The cURL path must be used even when allow_url_fopen is enabled and the
+     * legacy FORCE_CURL constant is not defined.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetUrlDataWithAllowUrlFopenEnabled(): void
+    {
+        if (self::$serverPort === 0 || !\function_exists('curl_init')) {
+            $this->markTestSkipped('Local HTTP server not available');
+        }
+
+        if (\defined('FORCE_CURL')) {
+            $this->markTestSkipped('FORCE_CURL is defined in this environment');
+        }
+
+        if (\ini_get('allow_url_fopen') === false || \ini_get('allow_url_fopen') === '0') {
+            $this->markTestSkipped('allow_url_fopen is disabled in this environment');
+        }
+
+        $file = new \Com\Tecnick\File\File(['127.0.0.1']);
+
+        $result = $file->getUrlData('http://127.0.0.1:' . self::$serverPort . '/empty.php');
         $this->assertSame('', $result);
     }
 

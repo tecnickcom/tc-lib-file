@@ -580,9 +580,15 @@ class File
     }
 
     /**
-     * Reads entire remote file into a string using CURL
+     * Reads entire remote file into a string using CURL.
+     *
+     * The cURL path is always used, independently of the allow_url_fopen ini setting.
      *
      * @param string $url URL to read.
+     *
+     * @return string|false Remote content, or FALSE when the URL is not
+     *                      allowlisted, the curl extension is missing, or the
+     *                      transfer fails.
      *
      * @throws FileException if the remote transfer is aborted due to max size.
      *
@@ -595,8 +601,7 @@ class File
         }
 
         if (
-            \ini_get('allow_url_fopen') && !\defined('FORCE_CURL')
-            || !\function_exists('curl_init')
+            !\function_exists('curl_init')
             || \preg_match('%^https?://%', $url) === 0
             || \preg_match('%^https?://%', $url) === false
         ) {

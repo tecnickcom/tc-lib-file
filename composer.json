@@ -42,7 +42,7 @@
     },
     "require-dev": {
         "pdepend/pdepend": "^2.16",
-        "phpunit/phpunit": "^13.2 || ^12.5 || ^11.5"
+        "phpunit/phpunit": "^11.5 || ^12.5 || ^13.3"
     },
     "autoload": {
         "psr-4": {

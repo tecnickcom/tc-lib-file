@@ -105,6 +105,15 @@ $file
 
 Avoid wildcard trust (`'*'`) unless you fully control all inputs and deployment boundaries.
 
+### Remote fetching
+
+Remote URLs are always fetched with cURL, so the `allow_url_fopen` ini setting has no
+effect on `getUrlData()`, `getFileData()` and `fileGetContents()`. The `curl` extension
+is required; `allowedHosts` is the only gate on which hosts can be reached.
+
+The legacy `FORCE_CURL` constant is obsolete and ignored: code that still defines it
+behaves the same.
+
 ### Redirect Handling via `CURLOPT_MAXREDIRS`
 
 Redirect validation is enabled when `CURLOPT_MAXREDIRS` is non-zero.
