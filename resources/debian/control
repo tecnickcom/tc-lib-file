@@ -12,7 +12,8 @@ Vcs-Browser: https://github.com/~#VENDOR#~/~#PROJECT#~
 Package: ~#PKGNAME#~
 Provides: php-~#PROJECT#~
 Architecture: all
-Depends: php (>= 8.2.0), php-curl, ${misc:Depends}
+Depends: php (>= 8.2.0), php-curl, php-pcre, ${misc:Depends}
 Recommends: php-intl
-Description: PHP Color library
- This library includes PHP classes to read byte-level data from files
+Description: PHP File library
+ PHP library for safe low-level file access: byte-level reads, path
+ allowlisting, file caching and directory lookup.

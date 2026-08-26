@@ -9,18 +9,19 @@
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2011-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
- * @link      https://github.com/tecnickcom/tc-lib-pdf-filecache
+ * @link      https://github.com/tecnickcom/tc-lib-file
  *
- * This file is part of tc-lib-pdf-filecache software library.
+ * This file is part of tc-lib-file software library.
  */
 
 namespace Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 
 /**
- * Unit Test
+ * Cache class test
  *
  * @since     2011-05-23
  * @category  Library
@@ -28,7 +29,7 @@ use PHPUnit\Framework\Attributes\RunInSeparateProcess;
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2011-2026 Nicola Asuni - Tecnick.com LTD
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
- * @link      https://github.com/tecnickcom/tc-lib-pdf-filecache
+ * @link      https://github.com/tecnickcom/tc-lib-file
  */
 class CacheTest extends TestUtil
 {
@@ -37,8 +38,7 @@ class CacheTest extends TestUtil
      *
      * delete() and deleteOlderThan() act on every file carrying the instance
      * prefix in the shared system temp directory, so a fixed prefix would make
-     * two concurrent runs delete each other's files and silently sweep up
-     * debris left by an earlier crashed run.
+     * two concurrent runs delete each other's files.
      *
      * @throws \Com\Tecnick\File\Exception
      */
@@ -65,14 +65,174 @@ class CacheTest extends TestUtil
     }
 
     /**
+     * Create an empty cache directory unique to this test.
+     *
+     * @return string Path of the created directory.
+     */
+    private static function makeCacheDir(): string
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf' . \uniqid('', true);
+        \mkdir($dir, 0o700, true);
+
+        return $dir;
+    }
+
+    /**
      * @throws \Com\Tecnick\File\Exception
      */
     public function testGetFilePrefixSanitizesUnsafeCharacters(): void
     {
-        // '+' and '/' map to '-' and '_'; everything outside [A-Za-z0-9_-] is
-        // dropped. No file is created, so a fixed prefix is safe here.
+        // '+' and '/' map to '-'; everything outside [A-Za-z0-9-] is dropped,
+        // '_' included, because it separates the fields of a generated name.
+        // No file is created, so a fixed prefix is safe here.
         $cache = new \Com\Tecnick\File\Cache('1_2-a+B/c');
-        $this->assertSame('_1_2-a-B_c_', $cache->getFilePrefix());
+        $this->assertSame('_12-a-B-c_', $cache->getFilePrefix());
+    }
+
+    /**
+     * A prefix left empty by sanitization must not collapse to '__': every such
+     * instance would share it, and the prefix scan would then match unrelated
+     * files in the shared system temp directory used by default.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    #[DataProvider('emptySanitizedPrefixProvider')]
+    public function testPrefixThatSanitizesToEmptyFallsBackToARandomOne(string $input): void
+    {
+        $prefix = (new \Com\Tecnick\File\Cache($input))->getFilePrefix();
+
+        $this->assertNotSame('__', $prefix);
+        $this->assertSame(1, \preg_match('/^_[a-f0-9]{32}_$/', $prefix), $prefix);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function emptySanitizedPrefixProvider(): array
+    {
+        return [
+            'empty' => [''],
+            'only stripped characters' => ['***'],
+            'only whitespace' => ['   '],
+            'a single underscore' => ['_'],
+            'only underscores' => ['___'],
+        ];
+    }
+
+    /**
+     * The type and key fields are separated by '_' in a generated name, so '_'
+     * must not survive sanitization inside a field: getNewFileName('a', 'b-c')
+     * and getNewFileName('a-b', 'c') must not produce the same name shape, and
+     * delete() must not reach across a field boundary.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteDoesNotReachAcrossFieldBoundaries(): void
+    {
+        $dir = self::makeCacheDir();
+
+        try {
+            $cache = (new \Com\Tecnick\File\Cache('scope'))->setCachePath($dir);
+
+            $target = $cache->getNewFileName('img', 'k1');
+            $siblingKey = $cache->getNewFileName('img', 'k1-thumb');
+            $siblingType = $cache->getNewFileName('img-thumb', 'k1');
+
+            $this->assertNotSame($siblingKey, $siblingType);
+
+            $cache->delete('img', 'k1');
+
+            $this->assertFileDoesNotExist($target);
+            $this->assertFileExists($siblingKey);
+            $this->assertFileExists($siblingType);
+
+            $cache->delete('img');
+
+            $this->assertFileDoesNotExist($siblingKey);
+            $this->assertFileExists($siblingType);
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
+    /**
+     * A cache must never delete a file belonging to an instance whose prefix
+     * merely starts with its own.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteDoesNotReachIntoAnotherInstancePrefix(): void
+    {
+        $dir = self::makeCacheDir();
+
+        try {
+            $app = (new \Com\Tecnick\File\Cache('app'))->setCachePath($dir);
+            $appV2 = (new \Com\Tecnick\File\Cache('app-v2'))->setCachePath($dir);
+
+            $ownFile = $app->getNewFileName('t', '1');
+            $otherFile = $appV2->getNewFileName('t', '1');
+
+            $app->delete();
+
+            $this->assertFileDoesNotExist($ownFile);
+            $this->assertFileExists($otherFile);
+
+            $app->deleteOlderThan(0);
+
+            $this->assertFileExists($otherFile);
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
+    /**
+     * A negative age puts the cutoff in the future, which would delete every
+     * file for the prefix instead of only the stale ones.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteOlderThanRejectsANegativeAge(): void
+    {
+        $dir = self::makeCacheDir();
+
+        try {
+            $cache = (new \Com\Tecnick\File\Cache('age'))->setCachePath($dir);
+            $file = $cache->getNewFileName('t', '1');
+
+            try {
+                $cache->deleteOlderThan(-1);
+                $this->fail('deleteOlderThan() accepted a negative age');
+            } catch (\Com\Tecnick\File\Exception $exception) {
+                $this->assertSame('the maximum age must not be negative, got: -1', $exception->getMessage());
+            }
+
+            $this->assertFileExists($file);
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
+    /**
+     * setCachePath() returns the instance so it can be chained, like every
+     * setter on File.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSetCachePathIsFluent(): void
+    {
+        $dir = self::makeCacheDir();
+
+        try {
+            $cache = new \Com\Tecnick\File\Cache('fluent');
+
+            $this->assertSame($cache, $cache->setCachePath($dir));
+
+            $real = \realpath($dir);
+            $this->assertNotFalse($real);
+            $this->assertSame($real . \DIRECTORY_SEPARATOR, $cache->getCachePath());
+        } finally {
+            self::removeDirectory($dir);
+        }
     }
 
     /**
@@ -191,10 +351,9 @@ class CacheTest extends TestUtil
     }
 
     /**
-     * An unresolvable cache directory must be reported, not accepted as ''.
-     * An empty path makes tempnam() fall back to the system temp directory
-     * while delete() scans the working directory, so files would be written
-     * and searched for in two different places with no error.
+     * An unresolvable cache directory is reported rather than accepted as '',
+     * which would make tempnam() write to the system temp directory while
+     * delete() scans the working directory.
      *
      * @throws \Com\Tecnick\File\Exception
      */
@@ -364,9 +523,12 @@ class CacheTest extends TestUtil
     }
 
     /**
+     * A key cannot be matched without a type, because the file name is built
+     * as prefix + type + key, so the call is rejected.
+     *
      * @throws \Com\Tecnick\File\Exception
      */
-    public function testKeyOnlyDeletesAll(): void
+    public function testKeyWithoutTypeIsRejected(): void
     {
         $cache = $this->getTestObject();
         $file = $cache->getNewFileName('foo', 'bar');
@@ -374,9 +536,17 @@ class CacheTest extends TestUtil
         $this->assertTrue(\file_exists($file));
 
         try {
-            // key-only call should treat as delete all
-            $cache->delete(null, 'bar');
-            $this->assertFalse(\file_exists($file));
+            $thrown = null;
+
+            try {
+                $cache->delete(null, 'bar');
+            } catch (\Com\Tecnick\File\Exception $exception) {
+                $thrown = $exception;
+            }
+
+            $this->assertInstanceOf(\Com\Tecnick\File\Exception::class, $thrown);
+            // The rejected call must be inert: the entry is still there.
+            $this->assertTrue(\file_exists($file));
         } finally {
             $cache->delete();
         }
@@ -448,7 +618,7 @@ class CacheTest extends TestUtil
     }
 
     // -------------------------------------------------------------------------
-    // Issue 4: glob-injection sanitisation in delete()
+    // Sanitisation of the delete() name patterns
     // -------------------------------------------------------------------------
 
     /**
@@ -464,12 +634,11 @@ class CacheTest extends TestUtil
         $this->assertTrue(\file_exists($real));
 
         try {
-            // Call delete() with glob metacharacters in $type — must not expand.
+            // Glob metacharacters in $type must not expand.
             $cache->delete('*', null);
 
-            // The real file must still exist because '*' was stripped to '' and
-            // the resulting prefix matched nothing (or only unrelated files).
-            // If metacharacter injection were possible every file would be gone.
+            // The real file survives because '*' is stripped and the
+            // resulting prefix matches nothing.
             $this->assertTrue(\file_exists($real), 'Metacharacters in $type must not delete unrelated files');
         } finally {
             $cache->delete();
@@ -488,7 +657,7 @@ class CacheTest extends TestUtil
         $this->assertTrue(\file_exists($real));
 
         try {
-            // Inject a glob metacharacter in $key — must be stripped.
+            // A glob metacharacter in $key must be stripped.
             $cache->delete('mytype', '?');
 
             $this->assertTrue(\file_exists($real), 'Metacharacters in $key must not delete unrelated files');
@@ -498,21 +667,21 @@ class CacheTest extends TestUtil
     }
 
     // -------------------------------------------------------------------------
-    // Issue 6: per-instance cache properties
+    // Per-instance cache path and prefix
     // -------------------------------------------------------------------------
 
     // Testing covered by testEachInstanceHasOwnPrefix() and testEachInstanceHasOwnCachePath()
 
     // -------------------------------------------------------------------------
-    // Issue 9: createNewFileName()
+    // Cache file creation
     // -------------------------------------------------------------------------
 
-    // Testing the exception path of getNewFileName() requires tempnam() to return false,
-    // which is not deterministic in this environment because tempnam() can fall back
-    // to the system temporary directory.
+    // The tempnam() failure path of getNewFileName() is not covered here:
+    // tempnam() falls back to the system temporary directory instead of
+    // returning false.
 
     // -------------------------------------------------------------------------
-    // Issue 10: deleteOlderThan()
+    // Age-based deletion
     // -------------------------------------------------------------------------
 
     /**
@@ -523,9 +692,16 @@ class CacheTest extends TestUtil
         // Call deleteOlderThan() when no files exist for this cache prefix, so
         // the empty-result early return is exercised.
         $cache = new \Com\Tecnick\File\Cache('emptyprefix' . \uniqid('', false));
+
+        /** @var array<int, string> $before */
+        $before = (new \ReflectionMethod($cache, 'findFiles'))->invoke($cache, $cache->getFilePrefix());
+        $this->assertSame([], $before);
+
         $cache->deleteOlderThan(3600);
-        // No exception thrown is the expected outcome.
-        $this->expectNotToPerformAssertions();
+
+        /** @var array<int, string> $after */
+        $after = (new \ReflectionMethod($cache, 'findFiles'))->invoke($cache, $cache->getFilePrefix());
+        $this->assertSame([], $after);
     }
 
     /**
@@ -534,8 +710,16 @@ class CacheTest extends TestUtil
     public function testDeleteNoFiles(): void
     {
         $cache = new \Com\Tecnick\File\Cache('emptyprefix' . \uniqid('', false));
+
+        /** @var array<int, string> $before */
+        $before = (new \ReflectionMethod($cache, 'findFiles'))->invoke($cache, $cache->getFilePrefix());
+        $this->assertSame([], $before);
+
         $cache->delete();
-        $this->expectNotToPerformAssertions();
+
+        /** @var array<int, string> $after */
+        $after = (new \ReflectionMethod($cache, 'findFiles'))->invoke($cache, $cache->getFilePrefix());
+        $this->assertSame([], $after);
     }
 
     /**
@@ -565,11 +749,11 @@ class CacheTest extends TestUtil
     }
 
     /**
-     * When the host application defines K_PATH_CACHE without a trailing separator,
-     * the fallback path must still be normalized so generated files land inside the
-     * cache directory instead of escaping into its parent (e.g. ".../cache" + name
-     * yielding ".../cache_<name>"). Runs in a separate process because K_PATH_CACHE
-     * is a constant that cannot be (re)defined once the cache class has set it.
+     * A K_PATH_CACHE without a trailing separator is normalized, so generated
+     * files land inside the cache directory rather than next to it.
+     *
+     * Runs in a separate process, because K_PATH_CACHE cannot be redefined
+     * once the cache class has set it.
      *
      * @throws \Com\Tecnick\File\Exception
      */
@@ -605,5 +789,528 @@ class CacheTest extends TestUtil
         } finally {
             \rmdir($dir);
         }
+    }
+
+    /**
+     * getNewFileName() reports an uncreatable cache file instead of returning a
+     * path the caller cannot write to.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNameThrowsWhenTheDirectoryIsUnusable(): void
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_ro_' . \uniqid('', true);
+        $this->assertTrue(\mkdir($dir, 0o777, true));
+
+        $cache = new class('rofail') extends \Com\Tecnick\File\Cache {
+            public function pointAt(string $path): void
+            {
+                $this->path = \rtrim($path, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR;
+            }
+        };
+
+        try {
+            $this->assertTrue(\chmod($dir, 0o500));
+            \clearstatcache(true, $dir);
+
+            // Root and some ACL setups ignore the mode bits, in which case
+            // tempnam() succeeds and there is nothing to assert.
+            if (\is_writable($dir)) {
+                $this->markTestSkipped('permission bits are not enforced for this user');
+            }
+
+            $cache->pointAt($dir);
+
+            $before = \scandir(\sys_get_temp_dir());
+            $this->assertIsArray($before);
+
+            // The message tells the two failure paths apart: the tempnam()
+            // fallback guard, not the later "cannot create a cache file" arm.
+            try {
+                $cache->getNewFileName('t', 'k');
+                $this->fail('getNewFileName() accepted an unwritable cache directory');
+            } catch (\Com\Tecnick\File\Exception $exception) {
+                // The message tells the two failure paths apart: the
+                // tempnam() fallback guard, not the later "cannot create a
+                // cache file" arm.
+                $this->assertSame(
+                    'unable to create a temporary file in: ' . $dir . \DIRECTORY_SEPARATOR,
+                    $exception->getMessage(),
+                );
+            } finally {
+                // Nothing may be stranded in the system temp directory either.
+                $after = \scandir(\sys_get_temp_dir());
+                $this->assertIsArray($after);
+                $this->assertSame(
+                    [],
+                    \array_values(\array_filter(
+                        \array_diff($after, $before),
+                        static fn(string $entry): bool => \str_starts_with($entry, $cache->getFilePrefix()),
+                    )),
+                );
+            }
+        } finally {
+            \chmod($dir, 0o777);
+            \rmdir($dir);
+        }
+    }
+
+    /**
+     * A directory scan that cannot run yields no files rather than an error, so
+     * delete() on a vanished cache directory stays inert.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteToleratesAMissingCacheDirectory(): void
+    {
+        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_gone_' . \uniqid('', true);
+        $this->assertTrue(\mkdir($dir, 0o777, true));
+
+        $cache = new class('gone') extends \Com\Tecnick\File\Cache {
+            public function pointAt(string $path): void
+            {
+                $this->path = \rtrim($path, \DIRECTORY_SEPARATOR) . \DIRECTORY_SEPARATOR;
+            }
+        };
+
+        $cache->pointAt($dir);
+        \rmdir($dir);
+
+        // scandir() fails on the removed directory; the warning must be
+        // swallowed and both entry points must simply do nothing.
+        $cache->delete();
+        $cache->delete('type');
+        $cache->deleteOlderThan(0);
+
+        $this->assertFalse(\is_dir($dir));
+    }
+
+    /**
+     * The prefix scan only ever returns files: a directory bearing the prefix
+     * would reach unlink() and fail there with the warning suppressed.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteSkipsDirectoriesBearingThePrefix(): void
+    {
+        $cache = $this->getTestObject();
+        $file = $cache->getNewFileName('foo', 'bar');
+        \file_put_contents($file, '');
+
+        $decoy = $cache->getCachePath() . $cache->getFilePrefix() . 'foo_bar_directory';
+        $this->assertTrue(\mkdir($decoy, 0o777));
+
+        try {
+            // The scan itself is asserted on: unlink() fails on a directory
+            // with the warning suppressed, so the decoy survives delete()
+            // whether or not the scan filters it out.
+            /** @var array<int, string> $found */
+            $found = (new \ReflectionMethod($cache, 'findFiles'))->invoke($cache, $cache->getFilePrefix());
+            $this->assertSame([$file], \array_values($found));
+
+            $cache->delete();
+
+            $this->assertFalse(\file_exists($file));
+            // The directory is left untouched rather than being passed to unlink().
+            $this->assertTrue(\is_dir($decoy));
+        } finally {
+            \rmdir($decoy);
+            $cache->delete();
+        }
+    }
+
+    /**
+     * The generated name really is sanitized, not merely harmless because the
+     * scan does no globbing: the metacharacters must be gone from the filename.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGeneratedNameStripsUnsafeCharactersFromTypeAndKey(): void
+    {
+        $cache = $this->getTestObject();
+        $file = $cache->getNewFileName('a*b', 'c?d');
+
+        try {
+            $expected = $cache->getFilePrefix() . 'ab_cd_';
+            $this->assertStringStartsWith($expected, \basename($file));
+        } finally {
+            $cache->delete();
+        }
+    }
+
+    /**
+     * Two files created with the same type and key must not collide: the random
+     * suffix is what keeps rename() from overwriting an existing entry.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNameDoesNotClobberAnExistingEntry(): void
+    {
+        $cache = $this->getTestObject();
+
+        try {
+            $first = $cache->getNewFileName('img', 'k');
+            \file_put_contents($first, 'first');
+
+            $second = $cache->getNewFileName('img', 'k');
+            \file_put_contents($second, 'second');
+
+            $this->assertNotSame($first, $second);
+            $this->assertTrue(\is_file($first));
+            $this->assertSame('first', \file_get_contents($first));
+            $this->assertSame('second', \file_get_contents($second));
+        } finally {
+            $cache->delete();
+        }
+    }
+
+    /**
+     * The generated prefix must not be derived from a predictable source, so two
+     * instances created back to back never share one.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGeneratedPrefixesAreDistinct(): void
+    {
+        $prefixes = [];
+        for ($i = 0; $i < 8; $i++) {
+            $prefixes[] = (new \Com\Tecnick\File\Cache())->getFilePrefix();
+        }
+
+        $this->assertCount(8, \array_unique($prefixes));
+
+        foreach ($prefixes as $prefix) {
+            // Still a safe filename token after sanitization.
+            $this->assertMatchesRegularExpression('/^_[a-zA-Z0-9\-]+_$/', $prefix);
+        }
+    }
+
+    /**
+     * When every candidate name is already taken, getNewFileName() gives up
+     * rather than overwrite an existing entry, and it removes the temporary file
+     * it created instead of returning a path delete() could never reclaim.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNameGivesUpWhenEveryCandidateNameIsTaken(): void
+    {
+        // A unique prefix: with randomToken() pinned, a fixed one would
+        // collide between concurrent runs.
+        $cache = new class('collide' . \uniqid('', false)) extends \Com\Tecnick\File\Cache {
+            /**
+             * Make every attempt produce the same name so the collision branch
+             * is reached deterministically instead of on a 1-in-2^128 chance.
+             */
+            protected function randomToken(int $bytes): string
+            {
+                return 'fixedtoken';
+            }
+
+            public function cacheDir(): string
+            {
+                return $this->path;
+            }
+        };
+
+        // A regular file, not a directory: rename() fails on a directory
+        // whatever the code does, while it would overwrite this file.
+        $blocker = $cache->cacheDir() . $cache->getFilePrefix() . 'typ_key_fixedtoken';
+        $this->assertNotFalse(\file_put_contents($blocker, 'PRECIOUS'));
+
+        $before = \scandir($cache->cacheDir());
+        $this->assertIsArray($before);
+
+        try {
+            $thrown = null;
+
+            try {
+                $cache->getNewFileName('typ', 'key');
+            } catch (\Com\Tecnick\File\Exception $exception) {
+                $thrown = $exception;
+            }
+
+            $this->assertInstanceOf(\Com\Tecnick\File\Exception::class, $thrown);
+
+            // The blocking entry is untouched, and no tempnam() leftover carrying
+            // this instance's prefix survives.
+            $this->assertSame('PRECIOUS', \file_get_contents($blocker));
+
+            $after = \scandir($cache->cacheDir());
+            $this->assertIsArray($after);
+            $leftovers = \array_filter(\array_diff($after, $before), static fn(string $entry): bool => \str_starts_with(
+                $entry,
+                $cache->getFilePrefix(),
+            ));
+            $this->assertSame([], \array_values($leftovers));
+        } finally {
+            \unlink($blocker);
+        }
+    }
+
+    /**
+     * K_PATH_CACHE defaults to upload_tmp_dir when one is set, and to the
+     * system temp directory otherwise.
+     *
+     * Runs in a subprocess, because upload_tmp_dir is PHP_INI_SYSTEM and
+     * K_PATH_CACHE is defined once per process.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSystemCachePathPrefersUploadTmpDir(): void
+    {
+        if (!\function_exists('proc_open')) {
+            $this->markTestSkipped('proc_open() is not available in this environment');
+        }
+
+        $uploadDir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_upload_' . \uniqid('', true);
+        $this->assertTrue(\mkdir($uploadDir, 0o777, true));
+
+        $autoload = \dirname(__DIR__) . '/vendor/autoload.php';
+        $script = 'require ' . \var_export($autoload, true) . '; echo (new \Com\Tecnick\File\Cache())->getCachePath();';
+
+        try {
+            $withUploadDir = self::runInSubprocess(['-d', 'upload_tmp_dir=' . $uploadDir, '-r', $script]);
+            if ($withUploadDir === null) {
+                $this->markTestSkipped('unable to start a PHP subprocess in this environment');
+            }
+
+            $this->assertSame(
+                (string) \realpath($uploadDir) . \DIRECTORY_SEPARATOR,
+                $withUploadDir,
+                'upload_tmp_dir must be preferred when it is set',
+            );
+
+            // With no upload_tmp_dir the system temp directory is used, which
+            // is what makes the assertion above about the ini value.
+            $withoutUploadDir = self::runInSubprocess(['-d', 'upload_tmp_dir=', '-r', $script]);
+            $this->assertNotSame($withUploadDir, $withoutUploadDir);
+            $this->assertSame((string) \realpath(\sys_get_temp_dir()) . \DIRECTORY_SEPARATOR, $withoutUploadDir);
+        } finally {
+            \rmdir($uploadDir);
+        }
+    }
+
+    /**
+     * Run PHP with the given arguments and return its trimmed stdout, or null
+     * when the process could not be started.
+     *
+     * @param array<string> $args Arguments after the interpreter path.
+     */
+    private static function runInSubprocess(array $args): ?string
+    {
+        $descriptors = [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']];
+        $pipes = [];
+
+        $proc = \proc_open([\PHP_BINARY, ...$args], $descriptors, $pipes);
+        if (!\is_resource($proc)) {
+            return null;
+        }
+
+        $out = '';
+        foreach ($pipes as $index => $pipe) {
+            if (!\is_resource($pipe)) {
+                continue;
+            }
+
+            if ($index === 1) {
+                $out = (string) \stream_get_contents($pipe);
+            }
+
+            \fclose($pipe);
+        }
+
+        \proc_close($proc);
+
+        return \trim($out);
+    }
+
+    /**
+     * A path naming a stream wrapper is refused and the default is used
+     * instead: the cache directory is concatenated with generated names and
+     * scanned with scandir(), neither of which is meaningful for a wrapper.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSetCachePathRejectsAStreamWrapper(): void
+    {
+        $cache = $this->getTestObject();
+        $default = $cache->getCachePath();
+
+        // 'file://' names a real, writable, existing directory through a
+        // wrapper, so only the '://' test can refuse it.
+        $cache->setCachePath('file://' . \sys_get_temp_dir());
+
+        $this->assertSame($default, $cache->getCachePath());
+        $this->assertStringNotContainsString('://', $cache->getCachePath());
+    }
+
+    /**
+     * deleteOlderThan() removes what is strictly older than the cutoff, so an
+     * entry whose mtime lands exactly on it survives.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testDeleteOlderThanKeepsAnEntryExactlyOnTheCutoff(): void
+    {
+        $cache = $this->getTestObject();
+
+        $onCutoff = $cache->getNewFileName('age', 'on');
+        $justOlder = $cache->getNewFileName('age', 'older');
+
+        $age = 100;
+        $now = \time();
+
+        // The cutoff is time() - $age; the guard is `mtime < cutoff`.
+        $this->assertTrue(\touch($onCutoff, $now - $age));
+        $this->assertTrue(\touch($justOlder, $now - $age - 1));
+        \clearstatcache();
+
+        try {
+            $cache->deleteOlderThan($age);
+
+            $this->assertFileExists($onCutoff);
+            $this->assertFileDoesNotExist($justOlder);
+        } finally {
+            if (\file_exists($onCutoff)) {
+                \unlink($onCutoff);
+            }
+
+            if (\file_exists($justOlder)) {
+                \unlink($justOlder);
+            }
+        }
+    }
+
+    /**
+     * A name collision is recovered from: the next candidate is tried and
+     * returned, and the entry that blocked the first one is left alone.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testGetNewFileNameRetriesAfterACollision(): void
+    {
+        $cache = new class('retry' . \uniqid('', false)) extends \Com\Tecnick\File\Cache {
+            /**
+             * Collide once, then yield a free name, so the loop has to come back
+             * around for the file it finally returns.
+             */
+            private int $calls = 0;
+
+            protected function randomToken(int $bytes): string
+            {
+                // The prefix is drawn from this method too, before the counter
+                // is of interest: only the getNewFileName() suffixes are pinned.
+                if ($this->prefix === '') {
+                    return parent::randomToken($bytes);
+                }
+
+                $this->calls++;
+
+                return $this->calls === 1 ? 'collide' : 'fresh';
+            }
+
+            public function cacheDir(): string
+            {
+                return $this->path;
+            }
+        };
+
+        $blocker = $cache->cacheDir() . $cache->getFilePrefix() . 'typ_key_collide';
+        $this->assertNotFalse(\file_put_contents($blocker, 'PRECIOUS'));
+
+        try {
+            $name = $cache->getNewFileName('typ', 'key');
+
+            // The second candidate is what came back, not the first.
+            $this->assertSame($cache->cacheDir() . $cache->getFilePrefix() . 'typ_key_fresh', $name);
+            $this->assertFileExists($name);
+
+            // The blocking entry was neither returned nor overwritten.
+            $this->assertSame('PRECIOUS', \file_get_contents($blocker));
+
+            \unlink($name);
+        } finally {
+            \unlink($blocker);
+        }
+    }
+
+    /**
+     * The filesystem-warning suppressor swallows E_WARNING and E_NOTICE only.
+     * Every other level, the E_USER_* family included, still reaches the
+     * handler the application installed.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSuppressionDoesNotDetachTheApplicationErrorHandler(): void
+    {
+        $suppress = new \ReflectionMethod(\Com\Tecnick\File\Cache::class, 'withoutFsWarnings');
+        $cache = $this->getTestObject();
+
+        $seen = [];
+        \set_error_handler(static function (int $errno, string $errstr) use (&$seen): bool {
+            $seen[] = [$errno, $errstr];
+            return true;
+        });
+
+        try {
+            /** @var string $result */
+            $result = $suppress->invoke($cache, static function (): string {
+                \trigger_error('a warning', E_USER_WARNING);
+                \trigger_error('a notice', E_USER_NOTICE);
+                \trigger_error('a deprecation', E_USER_DEPRECATED);
+
+                return 'done';
+            });
+        } finally {
+            \restore_error_handler();
+        }
+
+        $this->assertSame('done', $result);
+        $this->assertSame(
+            [
+                [E_USER_WARNING,    'a warning'],
+                [E_USER_NOTICE,     'a notice'],
+                [E_USER_DEPRECATED, 'a deprecation'],
+            ],
+            $seen,
+        );
+    }
+
+    /**
+     * With no application handler installed the same diagnostic falls through to
+     * PHP's own, which is what returning false from the inner handler asks for.
+     * The level is excluded from error_reporting() so nothing is printed.
+     *
+     * @throws \Com\Tecnick\File\Exception
+     */
+    public function testSuppressionFallsThroughWhenNoHandlerIsInstalled(): void
+    {
+        $suppress = new \ReflectionMethod(\Com\Tecnick\File\Cache::class, 'withoutFsWarnings');
+        $cache = $this->getTestObject();
+
+        $level = \error_reporting(E_ALL & ~E_USER_DEPRECATED);
+        \set_error_handler(null);
+
+        // PHP's own handler records the diagnostic in error_get_last(), while
+        // a swallowed one leaves this sentinel as the last error.
+        \trigger_error('SENTINEL-BEFORE', E_USER_DEPRECATED);
+
+        try {
+            /** @var string $result */
+            $result = $suppress->invoke($cache, static function (): string {
+                \trigger_error('nobody is listening', E_USER_DEPRECATED);
+
+                return 'done';
+            });
+        } finally {
+            \restore_error_handler();
+            \error_reporting($level);
+        }
+
+        $this->assertSame('done', $result);
+
+        $last = \error_get_last();
+        $this->assertIsArray($last);
+        $this->assertSame('nobody is listening', $last['message']);
     }
 }

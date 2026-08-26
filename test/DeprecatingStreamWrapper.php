@@ -1,9 +1,9 @@
 <?php
 
 /**
- * SingleByteStreamWrapper.php
+ * DeprecatingStreamWrapper.php
  *
- * @since     2026-04-30
+ * @since     2026-08-26
  * @category  Library
  * @package   File
  * @author    Nicola Asuni <info@tecnick.com>
@@ -17,16 +17,23 @@
 namespace Test;
 
 /**
- * A stream wrapper that delivers exactly one byte per stream_read() call.
- * Used to exercise the iterative while-loop in File::rfRead().
+ * A stream wrapper that raises an E_USER_DEPRECATED on read.
+ *
+ * The warning-suppression helpers in File and Cache swallow E_WARNING and
+ * E_NOTICE only. This wrapper raises a level outside that set from inside a
+ * suppressed call, so a test can assert that it still reaches the error handler
+ * the application installed.
  */
-class SingleByteStreamWrapper
+class DeprecatingStreamWrapper
 {
+    /**
+     * Message raised on the first read.
+     */
+    public const MESSAGE = 'a deprecation from inside a suppressed call';
+
     public mixed $context;
 
-    private string $data = 'abcdefgh';
-
-    private int $position = 0;
+    private bool $done = false;
 
     public function stream_open(string $path, string $mode, int $options, ?string &$opened_path): bool
     {
@@ -37,19 +44,19 @@ class SingleByteStreamWrapper
     public function stream_read(int $count): string
     {
         unset($count);
-        // Always return one byte at a time regardless of requested count.
-        if ($this->position >= \strlen($this->data)) {
+        if ($this->done) {
             return '';
         }
 
-        $byte = $this->data[$this->position];
-        ++$this->position;
-        return $byte;
+        $this->done = true;
+        \trigger_error(self::MESSAGE, E_USER_DEPRECATED);
+
+        return 'ok';
     }
 
     public function stream_eof(): bool
     {
-        return $this->position >= \strlen($this->data);
+        return $this->done;
     }
 
     /**

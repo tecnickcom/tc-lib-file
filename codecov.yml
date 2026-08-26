@@ -1,0 +1,19 @@
+# Codecov configuration.
+#
+# Only the xdebug job uploads a report, so a single status is expected.
+# The 1% threshold absorbs the jitter of platform-dependent branches (path
+# case-sensitivity, tempnam() behaviour) without letting a real drop pass.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true

@@ -22,12 +22,10 @@ jobs:
   test-php:
     name: Test on php ${{ matrix.php-version }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         php-version: ["8.2", "8.3", "8.4", "8.5"]
-        experimental: [false]
         # Windows and macOS carry a large share of the path-handling code
         # (drive letters, separator normalization, case-insensitive and
         # normalization-insensitive volumes, tempnam() prefix truncation),
@@ -38,51 +36,132 @@ jobs:
           # pcov cannot produce branch/path coverage; one xdebug job supplies
           # it for the report uploaded to Codecov.
           - php-version: "8.4"
-            experimental: false
             os: ubuntu-latest
             coverage-extension: xdebug
     steps:
-      - uses: actions/checkout@v7
+      # Third-party actions are pinned to a commit: a tag is a mutable ref, and
+      # these steps run in a job that holds GH_TOKEN.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Use php ${{ matrix.php-version }}
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php-version }}
           coverage: ${{ matrix.coverage-extension }}
-          extensions: bcmath, curl, date, gd, hash, imagick, intl, json, mbstring, openssl, pcre, zlib
+          # intl backs the Unicode NFC folding used when matching paths against
+          # the allowlist. setup-php does not enable it by default, and without
+          # it that test skips instead of failing, so the branch would go
+          # unexercised on every job. The test-lowest job deliberately omits it
+          # to keep the degraded no-op path covered too.
+          extensions: curl, intl, pcre
           ini-values: display_errors=on, error_reporting=-1, zend.assertions=1
       - name: List php modules
         run: php -m
       - name: List php modules using "no php ini" mode
         run: php -m -n
+      # The key carries a hash of composer.json: actions/cache only writes on a
+      # key miss, so a constant key would pin the very first snapshot forever.
       - name: Cache module
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.composer/cache/
-          key: composer-cache-${{ matrix.os }}
+          key: composer-${{ matrix.os }}-${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.os }}-${{ matrix.php-version }}-
       - name: Install dependencies
         env:
           GH_TOKEN: ${{ github.token }}
         run: composer install --no-interaction --no-progress
-      # mago ships a per-platform binary; keep the style and analysis gate on a
-      # single runner rather than on every matrix entry.
+      # mago ships a per-platform binary; keep the format, style and analysis
+      # gates on a single runner rather than on every matrix entry.
+      - name: Check code formatting
+        if: matrix.os == 'ubuntu-latest' && matrix.coverage-extension == 'pcov'
+        run: composer run fmt-check
       - name: Check code style
         if: matrix.os == 'ubuntu-latest' && matrix.coverage-extension == 'pcov'
         run: composer run cs-check
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-lock
       - name: Analyse
         if: matrix.os == 'ubuntu-latest' && matrix.coverage-extension == 'pcov'
         run: composer run analyse
-      # Path (branch) coverage is an Xdebug-only capability: requesting it in
-      # phpunit.xml.dist would abort the pcov jobs, which have no driver able
-      # to collect it. Ask for it here only, where Xdebug is installed.
+      - name: Audit dependencies for known advisories
+        if: matrix.os == 'ubuntu-latest' && matrix.coverage-extension == 'pcov'
+        run: composer audit
+      # Only the xdebug job feeds Codecov, so the rest skip coverage collection
+      # entirely. Coverage is requested on the test:coverage command line rather
+      # than in phpunit.xml.dist, so that a plain phpunit run needs no driver at
+      # all. Path (branch) coverage is Xdebug-only, so it is asked for here.
       - name: Run all tests
         if: matrix.coverage-extension != 'xdebug'
         run: composer run test
       - name: Run all tests with path coverage
         if: matrix.coverage-extension == 'xdebug'
-        run: composer run test -- --path-coverage
+        run: composer run test:coverage -- --path-coverage
+      # make install, resources/autoload.php and the packaging descriptors are
+      # what reaches RPM/DEB users; nothing else in CI touches them. Install into
+      # a throwaway prefix and load the library through the shipped autoloader,
+      # which only resolves in the installed layout.
+      - name: Packaging smoke test
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          DESTDIR="$(mktemp -d)"
+          make install DESTDIR="$DESTDIR"
+          cat > "$DESTDIR/smoke.php" <<'SMOKE'
+          <?php
+          require \getenv('DESTDIR') . '/usr/share/php/Com/Tecnick/File/autoload.php';
+          foreach ([
+              'Com\Tecnick\File\Byte',
+              'Com\Tecnick\File\Cache',
+              'Com\Tecnick\File\Dir',
+              'Com\Tecnick\File\Exception',
+              'Com\Tecnick\File\File',
+          ] as $class) {
+              if (!\class_exists($class)) {
+                  \fwrite(\STDERR, 'the installed autoloader cannot load ' . $class . \PHP_EOL);
+                  exit(1);
+              }
+          }
+          echo 'installed layout loads every class', \PHP_EOL;
+          SMOKE
+          DESTDIR="$DESTDIR" php "$DESTDIR/smoke.php"
+
       - name: Send coverage
         if: matrix.coverage-extension == 'xdebug'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           flags: php-${{ matrix.php-version }}-${{ matrix.os }}
           name: php-${{ matrix.php-version }}-${{ matrix.os }}
+
+  test-lowest:
+    name: Test lowest supported dependencies on php 8.2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use php 8.2
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: "8.2"
+          coverage: none
+          # No intl here on purpose: this is the job that exercises the
+          # normalizeUnicode() no-op fallback documented in File.php.
+          extensions: curl, pcre
+          ini-values: display_errors=on, error_reporting=-1, zend.assertions=1
+      - name: Cache module
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.composer/cache/
+          key: composer-lowest-${{ hashFiles('composer.json') }}
+          restore-keys: composer-lowest-
+      # composer.lock is not committed, so the default install always resolves
+      # to the top of every declared range. Pin the bottom of the ranges here.
+      - name: Install lowest supported dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: composer update --prefer-lowest --prefer-stable --no-interaction
+      - name: Run unit tests
+        run: composer run test

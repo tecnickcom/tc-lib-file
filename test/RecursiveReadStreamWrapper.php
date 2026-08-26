@@ -16,6 +16,10 @@
 
 namespace Test;
 
+/**
+ * A stream wrapper that returns a short chunk on the first stream_read() call
+ * and the requested count afterwards.
+ */
 class RecursiveReadStreamWrapper
 {
     public mixed $context;
@@ -26,14 +30,12 @@ class RecursiveReadStreamWrapper
 
     private int $reads = 0;
 
-    // phpcs:ignore PSR1.Methods.CamelCapsMethodName.NotCamelCaps
     public function stream_open(string $path, string $mode, int $options, ?string &$opened_path): bool
     {
         unset($path, $mode, $options, $opened_path);
         return true;
     }
 
-    // phpcs:ignore PSR1.Methods.CamelCapsMethodName.NotCamelCaps
     public function stream_read(int $count): string
     {
         ++$this->reads;
@@ -44,7 +46,6 @@ class RecursiveReadStreamWrapper
         return $chunk;
     }
 
-    // phpcs:ignore PSR1.Methods.CamelCapsMethodName.NotCamelCaps
     public function stream_eof(): bool
     {
         return $this->position >= \strlen($this->data);
@@ -53,7 +54,6 @@ class RecursiveReadStreamWrapper
     /**
      * @return array<string, mixed>
      */
-    // phpcs:ignore PSR1.Methods.CamelCapsMethodName.NotCamelCaps
     public function stream_stat(): array
     {
         return [];

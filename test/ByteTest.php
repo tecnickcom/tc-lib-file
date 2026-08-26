@@ -19,7 +19,7 @@ namespace Test;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * Byte Color class test
+ * Byte class test
  *
  * @since     2015-07-28
  * @category  Library
@@ -335,7 +335,7 @@ class ByteTest extends TestUtil
     }
 
     // -------------------------------------------------------------------------
-    // Issue 7: out-of-bounds reads — always throw exceptions
+    // Out-of-bounds reads: always throw exceptions
     // -------------------------------------------------------------------------
 
     /**
@@ -427,7 +427,8 @@ class ByteTest extends TestUtil
      */
     public function testInBoundsReadNoWarning(): void
     {
-        // A read exactly at the boundary must not warn.
+        // A read exactly at the boundary must not warn: failOnWarning="true"
+        // in phpunit.xml.dist turns any warning raised here into a failure.
         $byte = new \Com\Tecnick\File\Byte("\x00\x01");
         $this->assertSame(0, $byte->getByte(0));
         $this->assertSame(1, $byte->getByte(1));
@@ -436,10 +437,8 @@ class ByteTest extends TestUtil
     /**
      * A negative offset must be rejected by every reader.
      *
-     * PHP reads a negative string offset from the end of the string, so without
-     * the guard getByte(-1) would silently return the last byte instead of
-     * raising. Line coverage cannot see this: the upper-bound half of each
-     * condition is what the out-of-bounds tests above exercise.
+     * PHP reads a negative string offset from the end of the string, so
+     * getByte(-1) would otherwise return the last byte.
      *
      * @param \Closure(\Com\Tecnick\File\Byte, int): (float|int) $read Reader invoker
      *
@@ -472,10 +471,8 @@ class ByteTest extends TestUtil
     }
 
     /**
-     * Every public reader on Byte.
-     *
-     * Each reader is wrapped in a closure rather than named by string so the
-     * call stays statically checkable.
+     * Every public reader on Byte, wrapped in a closure so that the call
+     * stays statically checkable.
      *
      * @return array<string, array{\Closure(\Com\Tecnick\File\Byte, int): (float|int)}>
      */
