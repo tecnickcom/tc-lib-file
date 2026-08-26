@@ -78,6 +78,33 @@ class CacheTest extends TestUtil
     }
 
     /**
+     * Tells whether a file can actually be created in the given directory.
+     *
+     * @param string $dir Directory to probe.
+     */
+    private static function canCreateFileIn(string $dir): bool
+    {
+        // tempnam() raises a notice when it falls back to the system temp
+        // directory; the return value is what the probe acts on.
+        \set_error_handler(static fn(): bool => true, E_WARNING | E_NOTICE);
+
+        try {
+            $probe = \tempnam($dir, 'probe');
+        } finally {
+            \restore_error_handler();
+        }
+
+        if ($probe === false) {
+            return false;
+        }
+
+        \unlink($probe);
+
+        // A file created elsewhere means the directory refused the write.
+        return \realpath(\dirname($probe)) === \realpath($dir);
+    }
+
+    /**
      * @throws \Com\Tecnick\File\Exception
      */
     public function testGetFilePrefixSanitizesUnsafeCharacters(): void
@@ -813,9 +840,12 @@ class CacheTest extends TestUtil
             $this->assertTrue(\chmod($dir, 0o500));
             \clearstatcache(true, $dir);
 
-            // Root and some ACL setups ignore the mode bits, in which case
-            // tempnam() succeeds and there is nothing to assert.
-            if (\is_writable($dir)) {
+            // Root, Windows and some ACL setups ignore the mode bits, in which
+            // case tempnam() succeeds and there is nothing to assert. The
+            // directory is probed with the same call getNewFileName() makes,
+            // because is_writable() reports the Windows read-only attribute
+            // that file creation there does not honour.
+            if (self::canCreateFileIn($dir)) {
                 $this->markTestSkipped('permission bits are not enforced for this user');
             }
 
@@ -1062,20 +1092,25 @@ class CacheTest extends TestUtil
             $this->markTestSkipped('proc_open() is not available in this environment');
         }
 
-        $uploadDir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_upload_' . \uniqid('', true);
-        $this->assertTrue(\mkdir($uploadDir, 0o777, true));
+        // The directory is created canonical, so that the value read back from
+        // the subprocess, which normalizes it with realpath(), can be compared
+        // with the one passed in.
+        $uploadDir = self::makeTempDir('tclf_upload_');
 
         $autoload = \dirname(__DIR__) . '/vendor/autoload.php';
         $script = 'require ' . \var_export($autoload, true) . '; echo (new \Com\Tecnick\File\Cache())->getCachePath();';
 
         try {
-            $withUploadDir = self::runInSubprocess(['-d', 'upload_tmp_dir=' . $uploadDir, '-r', $script]);
+            // The ini value is quoted: the ini parser reads '~', '&', '|' and
+            // '(' in a bare value as operators, and an 8.3 short name such as
+            // 'C:\Users\RUNNER~1' would be cut at the tilde.
+            $withUploadDir = self::runInSubprocess(['-d', 'upload_tmp_dir="' . $uploadDir . '"', '-r', $script]);
             if ($withUploadDir === null) {
                 $this->markTestSkipped('unable to start a PHP subprocess in this environment');
             }
 
             $this->assertSame(
-                (string) \realpath($uploadDir) . \DIRECTORY_SEPARATOR,
+                $uploadDir . \DIRECTORY_SEPARATOR,
                 $withUploadDir,
                 'upload_tmp_dir must be preferred when it is set',
             );

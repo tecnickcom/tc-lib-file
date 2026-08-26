@@ -222,12 +222,15 @@ class DirTest extends TestUtil
      */
     public function testFindParentDirTreatsARelativeStartLikeItsAbsoluteForm(): void
     {
-        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        // The base has to be canonical: the relative start is anchored to
+        // getcwd(), which reports the resolved path, so an unresolved base
+        // would make the two forms differ by more than their spelling.
+        $base = self::makeTempDir();
         $target = $base . \DIRECTORY_SEPARATOR . 'cache';
         $start = $base . \DIRECTORY_SEPARATOR . 'a' . \DIRECTORY_SEPARATOR . 'b';
 
         $this->assertTrue(\mkdir($start, 0o777, true));
-        $this->assertTrue(\mkdir($target, 0o777, true));
+        $this->assertTrue(\mkdir($target, 0o777));
 
         $cwd = \getcwd();
         $this->assertIsString($cwd);

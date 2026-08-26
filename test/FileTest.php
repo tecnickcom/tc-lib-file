@@ -288,28 +288,6 @@ class FileTest extends TestUtil
     }
 
     /**
-     * Create a temporary directory and return its canonical path.
-     *
-     * sys_get_temp_dir() can report a path that realpath() rewrites (an 8.3
-     * short name on Windows, the /var -> /private/var symlink on macOS), while
-     * the allowlist stores the canonical form of each root.
-     */
-    private static function makeTempDir(): string
-    {
-        $dir = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
-        if (!\mkdir($dir, 0o777, true)) {
-            self::fail('unable to create the temporary directory: ' . $dir);
-        }
-
-        $real = \realpath($dir);
-        if ($real === false) {
-            self::fail('unable to resolve the temporary directory: ' . $dir);
-        }
-
-        return $real;
-    }
-
-    /**
      * Run a callback with the expected filesystem warnings suppressed.
      *
      * symlink(), unlink() and rmdir() warn on an environment that refuses the
@@ -3817,12 +3795,15 @@ class FileTest extends TestUtil
      */
     public function testValidatedPathIsResolvedToItsCanonicalForm(): void
     {
-        $base = \sys_get_temp_dir() . \DIRECTORY_SEPARATOR . 'tclf_' . \uniqid('', true);
+        // The symlink target has to be canonical: Windows stores the path as
+        // it is given in the reparse point, so a base carrying an 8.3 short
+        // name would come back short from the resolution through the link.
+        $base = self::makeTempDir();
         $real = $base . \DIRECTORY_SEPARATOR . 'real';
         $link = $base . \DIRECTORY_SEPARATOR . 'link';
         $target = $real . \DIRECTORY_SEPARATOR . 'data.txt';
 
-        $this->assertTrue(\mkdir($real, 0o777, true));
+        $this->assertTrue(\mkdir($real, 0o777));
         $this->assertNotFalse(\file_put_contents($target, 'REAL'));
 
         if (!self::trySymlink($real, $link)) {
